@@ -8,7 +8,6 @@ import { useBmsSessionContext } from '@/contexts/BmsSessionContext';
 import {
   Activity,
   LayoutDashboard,
-  Library,
   LogOut,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -25,7 +24,6 @@ interface NavTab {
 
 const NAV_TABS: NavTab[] = [
   { label: 'หน้าหลัก', path: '/', icon: LayoutDashboard },
-  { label: 'ไลบรารี', path: '/library', icon: Library },
 ];
 
 // ---------------------------------------------------------------------------

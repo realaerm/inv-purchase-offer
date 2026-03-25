@@ -6,14 +6,12 @@ import { LoadingSpinner } from '@/components/layout/LoadingSpinner'
 import { AppLayout } from '@/components/layout/AppLayout'
 
 const Overview = lazy(() => import('@/pages/Overview'))
-const Library = lazy(() => import('@/pages/Library'))
 
 function AppRoutes() {
   return (
     <Suspense fallback={<LoadingSpinner size="lg" message="กำลังโหลดหน้า..." className="min-h-[50vh]" />}>
       <Routes>
         <Route path="/" element={<Overview />} />
-        <Route path="/library" element={<Library />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
