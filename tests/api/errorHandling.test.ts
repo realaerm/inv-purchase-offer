@@ -204,4 +204,101 @@ describe('T017 - Error Handling Contract', () => {
       ).rejects.toThrow(/Unable to connect/i)
     })
   })
+
+  // -------------------------------------------------------------------------
+  // HTTP 429 Rate Limiting — retrieveBmsSession
+  // -------------------------------------------------------------------------
+  describe('HTTP 429 Rate Limiting — retrieveBmsSession', () => {
+    it('throws an informative error for HTTP 429', async () => {
+      server.use(
+        http.get('https://hosxp.net/phapi/PasteJSON', () => {
+          return new HttpResponse(null, { status: 429 })
+        }),
+      )
+
+      await expect(retrieveBmsSession('some-id')).rejects.toThrow(/429/)
+    })
+
+    it('includes rate limit message in Thai', async () => {
+      server.use(
+        http.get('https://hosxp.net/phapi/PasteJSON', () => {
+          return new HttpResponse(null, { status: 429 })
+        }),
+      )
+
+      await expect(retrieveBmsSession('some-id')).rejects.toThrow(/มีการร้องขอบ่อยเกินไป/)
+    })
+
+    it('includes Retry-After header value when present', async () => {
+      server.use(
+        http.get('https://hosxp.net/phapi/PasteJSON', () => {
+          return new HttpResponse(null, {
+            status: 429,
+            headers: { 'Retry-After': '30' },
+          })
+        }),
+      )
+
+      await expect(retrieveBmsSession('some-id')).rejects.toThrow(/30 วินาที/)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // HTTP 429 Rate Limiting — executeSqlViaApi
+  // -------------------------------------------------------------------------
+  describe('HTTP 429 Rate Limiting — executeSqlViaApi', () => {
+    it('throws an informative error for HTTP 429', async () => {
+      server.use(
+        http.post('https://test.hosxp.net/api/sql', () => {
+          return new HttpResponse(null, { status: 429 })
+        }),
+      )
+
+      await expect(
+        executeSqlViaApi('SELECT 1', config),
+      ).rejects.toThrow(/429/)
+    })
+
+    it('includes rate limit message in Thai', async () => {
+      server.use(
+        http.post('https://test.hosxp.net/api/sql', () => {
+          return new HttpResponse(null, { status: 429 })
+        }),
+      )
+
+      await expect(
+        executeSqlViaApi('SELECT 1', config),
+      ).rejects.toThrow(/มีการร้องขอบ่อยเกินไป/)
+    })
+
+    it('includes Retry-After header value when present', async () => {
+      server.use(
+        http.post('https://test.hosxp.net/api/sql', () => {
+          return new HttpResponse(null, {
+            status: 429,
+            headers: { 'Retry-After': '60' },
+          })
+        }),
+      )
+
+      await expect(
+        executeSqlViaApi('SELECT 1', config),
+      ).rejects.toThrow(/60 วินาที/)
+    })
+
+    it('includes error message from response body when present', async () => {
+      server.use(
+        http.post('https://test.hosxp.net/api/sql', () => {
+          return HttpResponse.json(
+            { message: 'Rate limit exceeded for this endpoint' },
+            { status: 429 },
+          )
+        }),
+      )
+
+      await expect(
+        executeSqlViaApi('SELECT 1', config),
+      ).rejects.toThrow(/Rate limit exceeded for this endpoint/)
+    })
+  })
 })

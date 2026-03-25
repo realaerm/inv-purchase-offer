@@ -47,6 +47,17 @@ export async function retrieveBmsSession(sessionId: string): Promise<BmsSessionR
     const url = `${PASTE_JSON_URL}?Action=GET&code=${sessionId}`;
     const response = await fetch(url, { signal: controller.signal });
 
+    if (response.status === 429) {
+      let retryInfo = '';
+      const retryAfter = response.headers.get('Retry-After');
+      if (retryAfter) {
+        retryInfo = ` กรุณารอ ${retryAfter} วินาทีแล้วลองใหม่`;
+      }
+      throw new Error(
+        `มีการร้องขอบ่อยเกินไป (HTTP 429).${retryInfo} กรุณารอสักครู่แล้วลองใหม่อีกครั้ง`,
+      );
+    }
+
     if (!response.ok) {
       throw new Error(
         `Failed to retrieve session (HTTP ${response.status}). ` +
@@ -65,7 +76,10 @@ export async function retrieveBmsSession(sessionId: string): Promise<BmsSessionR
     }
 
     // Re-throw our own errors as-is
-    if (error instanceof Error && error.message.startsWith('Failed to retrieve session')) {
+    if (error instanceof Error && (
+      error.message.startsWith('Failed to retrieve session') ||
+      error.message.startsWith('มีการร้องขอบ่อยเกินไป')
+    )) {
       throw error;
     }
 
@@ -174,6 +188,27 @@ export async function executeSqlViaApi(
       signal: controller.signal,
     });
 
+    if (response.status === 429) {
+      let retryInfo = '';
+      const retryAfter = response.headers.get('Retry-After');
+      if (retryAfter) {
+        retryInfo = ` กรุณารอ ${retryAfter} วินาทีแล้วลองใหม่`;
+      }
+      // Try to get additional info from response body
+      try {
+        const errorData = await response.json() as { message?: string; error?: string };
+        const detail = errorData.message || errorData.error;
+        if (detail) {
+          retryInfo = `: ${detail}`;
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+      throw new Error(
+        `มีการร้องขอบ่อยเกินไป (HTTP 429).${retryInfo} กรุณารอสักครู่แล้วลองใหม่อีกครั้ง`,
+      );
+    }
+
     if (response.status === 501) {
       throw new Error('Session unauthorized. Please reconnect with a valid session ID.');
     }
@@ -196,7 +231,8 @@ export async function executeSqlViaApi(
     if (error instanceof Error && (
       error.message.startsWith('Session unauthorized') ||
       error.message.startsWith('SQL API returned') ||
-      error.message.startsWith('Query timed out')
+      error.message.startsWith('Query timed out') ||
+      error.message.startsWith('มีการร้องขอบ่อยเกินไป')
     )) {
       throw error;
     }

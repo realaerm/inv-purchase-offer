@@ -6,6 +6,9 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    'import.meta.env.BMS_SESSION_ID': JSON.stringify(process.env.BMS_SESSION_ID || ''),
+  },
   server: {
     host: '0.0.0.0',
   },
