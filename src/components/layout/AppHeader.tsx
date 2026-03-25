@@ -7,11 +7,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { useBmsSessionContext } from '@/contexts/BmsSessionContext';
 import {
   Activity,
-  Building2,
   LayoutDashboard,
+  Library,
   LogOut,
-  TrendingUp,
-  Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -26,10 +24,8 @@ interface NavTab {
 }
 
 const NAV_TABS: NavTab[] = [
-  { label: 'ภาพรวม', path: '/', icon: LayoutDashboard },
-  { label: 'แนวโน้ม', path: '/trends', icon: TrendingUp },
-  { label: 'แผนก', path: '/departments', icon: Building2 },
-  { label: 'ข้อมูลประชากร', path: '/demographics', icon: Users },
+  { label: 'หน้าหลัก', path: '/', icon: LayoutDashboard },
+  { label: 'ไลบรารี', path: '/library', icon: Library },
 ];
 
 // ---------------------------------------------------------------------------
@@ -57,10 +53,10 @@ export function AppHeader() {
         </div>
         <div className="flex flex-col">
           <h1 className="text-base font-bold leading-tight tracking-tight text-white">
-            แดชบอร์ด BMS
+            Template App
           </h1>
           <span className="text-[11px] leading-tight text-white/50">
-            สาธิตเซสชัน
+            BMS Session
           </span>
         </div>
       </div>
