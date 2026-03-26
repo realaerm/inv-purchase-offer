@@ -59,6 +59,7 @@ export function useQuery<T>(options: UseQueryOptions<T>): UseQueryResult<T> {
 
   useEffect(() => {
     if (enabled) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       execute()
     }
   }, [enabled, execute])

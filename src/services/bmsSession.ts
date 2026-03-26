@@ -72,6 +72,7 @@ export async function retrieveBmsSession(sessionId: string): Promise<BmsSessionR
       throw new Error(
         `Session retrieval timed out after ${SESSION_TIMEOUT_MS / 1000} seconds. ` +
           'Please check your network connection and try again.',
+        { cause: error },
       );
     }
 
@@ -86,6 +87,7 @@ export async function retrieveBmsSession(sessionId: string): Promise<BmsSessionR
     throw new Error(
       'Unable to connect to the session service. ' +
         'Please check your internet connection and try again.',
+      { cause: error },
     );
   } finally {
     clearTimeout(timeoutId);
@@ -224,7 +226,7 @@ export async function executeSqlViaApi(
     return data;
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('Query timed out after 60 seconds. Try a simpler query.');
+      throw new Error('Query timed out after 60 seconds. Try a simpler query.', { cause: error });
     }
 
     // Re-throw our own actionable errors as-is
@@ -239,6 +241,7 @@ export async function executeSqlViaApi(
 
     throw new Error(
       'Unable to connect to the BMS API. Please check your connection.',
+      { cause: error },
     );
   } finally {
     clearTimeout(timeoutId);
