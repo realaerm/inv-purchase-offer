@@ -13,6 +13,7 @@ import type {
 } from '@/types';
 
 import { queryBuilder } from '@/services/queryBuilder';
+import { apiQueue } from '@/services/apiQueue';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -261,7 +262,7 @@ export async function executeSqlViaApi(
  */
 export async function detectDatabaseType(config: ConnectionConfig): Promise<DatabaseType> {
   try {
-    const response = await executeSqlViaApi('SELECT VERSION() as version', config);
+    const response = await executeSqlViaApiQueued('SELECT VERSION() as version', config);
 
     const versionRow = response.data?.[0];
     if (!versionRow) {
@@ -277,4 +278,60 @@ export async function detectDatabaseType(config: ConnectionConfig): Promise<Data
   } catch {
     return 'mysql';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Queued SQL execution (with concurrency control)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a unique request ID for deduplication
+ */
+function generateRequestId(sql: string, config: ConnectionConfig): string {
+  // Normalize SQL by removing extra whitespace for better deduplication
+  const normalizedSql = sql.trim().replace(/\s+/g, ' ').toLowerCase();
+  const content = `${config.apiUrl}:${config.bearerToken.slice(-8)}:${normalizedSql}`;
+
+  // Simple hash
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return `sql-${hash.toString(36)}`;
+}
+
+/**
+ * Execute SQL via API with queue management.
+ *
+ * This function wraps `executeSqlViaApi` with:
+ * - Request deduplication (identical concurrent requests share the same result)
+ * - Concurrency limiting (max 3 concurrent API calls)
+ * - Automatic retry on HTTP 429 with exponential backoff
+ *
+ * @throws {Error} On network failure, HTTP errors, or timeout.
+ */
+export async function executeSqlViaApiQueued(
+  sql: string,
+  config: ConnectionConfig,
+): Promise<SqlApiResponse> {
+  const requestId = generateRequestId(sql, config);
+
+  return apiQueue.enqueue(requestId, () => executeSqlViaApi(sql, config));
+}
+
+/**
+ * Clear the API request queue.
+ * Call this when disconnecting to cancel pending requests.
+ */
+export function clearApiQueue(): void {
+  apiQueue.clear();
+}
+
+/**
+ * Get current API queue statistics.
+ */
+export function getApiQueueStats() {
+  return apiQueue.getStats();
 }

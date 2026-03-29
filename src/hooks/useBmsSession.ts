@@ -11,7 +11,8 @@ import {
   extractConnectionConfig,
   extractUserInfo,
   extractSystemInfo,
-  executeSqlViaApi,
+  executeSqlViaApiQueued,
+  clearApiQueue,
   detectDatabaseType,
 } from '@/services/bmsSession'
 import {
@@ -26,13 +27,14 @@ interface UseBmsSessionResult {
   error: Error | null
   connectSession: (sessionId: string) => Promise<boolean>
   disconnectSession: () => void
+  setDisconnected: () => void
   refreshSession: () => Promise<boolean>
   executeQuery: (sql: string) => Promise<SqlApiResponse>
 }
 
 export function useBmsSession(): UseBmsSessionResult {
   const [session, setSession] = useState<Session | null>(null)
-  const [sessionState, setSessionState] = useState<SessionState>('disconnected')
+  const [sessionState, setSessionState] = useState<SessionState>('idle')
   const [connectionConfig, setConnectionConfig] = useState<ConnectionConfig | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [lastSessionId, setLastSessionId] = useState<string | null>(null)
@@ -87,6 +89,7 @@ export function useBmsSession(): UseBmsSessionResult {
   }, [])
 
   const disconnectSession = useCallback(() => {
+    clearApiQueue()
     setSession(null)
     setConnectionConfig(null)
     setSessionState('disconnected')
@@ -105,7 +108,7 @@ export function useBmsSession(): UseBmsSessionResult {
     }
 
     try {
-      const result = await executeSqlViaApi(sql, connectionConfig)
+      const result = await executeSqlViaApiQueued(sql, connectionConfig)
 
       if (result.MessageCode === 500 || result.MessageCode === 501) {
         setSessionState('expired')
@@ -122,6 +125,10 @@ export function useBmsSession(): UseBmsSessionResult {
     }
   }, [connectionConfig])
 
+  const setDisconnected = useCallback(() => {
+    setSessionState('disconnected')
+  }, [])
+
   return {
     session,
     sessionState,
@@ -129,6 +136,7 @@ export function useBmsSession(): UseBmsSessionResult {
     error,
     connectSession,
     disconnectSession,
+    setDisconnected,
     refreshSession,
     executeQuery,
   }

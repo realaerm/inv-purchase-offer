@@ -15,6 +15,7 @@ interface UseQueryResult<T> {
   isLoading: boolean
   isError: boolean
   isSuccess: boolean
+  executionTimeMs: number | null
   execute: () => Promise<void>
   reset: () => void
 }
@@ -24,7 +25,18 @@ export function useQuery<T>(options: UseQueryOptions<T>): UseQueryResult<T> {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [state, setState] = useState<QueryState>('idle')
+  const [executionTimeMs, setExecutionTimeMs] = useState<number | null>(null)
   const mountedRef = useRef(true)
+  const queryFnRef = useRef(queryFn)
+  const onSuccessRef = useRef(onSuccess)
+  const onErrorRef = useRef(onError)
+
+  // Keep refs up to date with the latest callbacks
+  useEffect(() => {
+    queryFnRef.current = queryFn
+    onSuccessRef.current = onSuccess
+    onErrorRef.current = onError
+  }, [queryFn, onSuccess, onError])
 
   useEffect(() => {
     mountedRef.current = true
@@ -36,25 +48,29 @@ export function useQuery<T>(options: UseQueryOptions<T>): UseQueryResult<T> {
   const execute = useCallback(async () => {
     setState('loading')
     setError(null)
+    const startTime = Date.now()
     try {
-      const result = await queryFn()
+      const result = await queryFnRef.current()
       if (!mountedRef.current) return
+      setExecutionTimeMs(Date.now() - startTime)
       setData(result)
       setState('success')
-      onSuccess?.(result)
+      onSuccessRef.current?.(result)
     } catch (err) {
       if (!mountedRef.current) return
+      setExecutionTimeMs(Date.now() - startTime)
       const error = err instanceof Error ? err : new Error(String(err))
       setError(error)
       setState('error')
-      onError?.(error)
+      onErrorRef.current?.(error)
     }
-  }, [queryFn, onSuccess, onError])
+  }, [])
 
   const reset = useCallback(() => {
     setData(null)
     setError(null)
     setState('idle')
+    setExecutionTimeMs(null)
   }, [])
 
   useEffect(() => {
@@ -71,6 +87,7 @@ export function useQuery<T>(options: UseQueryOptions<T>): UseQueryResult<T> {
     isLoading: state === 'loading',
     isError: state === 'error',
     isSuccess: state === 'success',
+    executionTimeMs,
     execute,
     reset,
   }

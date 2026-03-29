@@ -10,7 +10,7 @@
 export type DatabaseType = 'mysql' | 'postgresql';
 
 /** WebSocket / polling connection lifecycle */
-export type SessionState = 'disconnected' | 'connecting' | 'connected' | 'expired';
+export type SessionState = 'idle' | 'disconnected' | 'connecting' | 'connected' | 'expired';
 
 /** Async data-fetch lifecycle */
 export type QueryState = 'idle' | 'loading' | 'success' | 'error';
