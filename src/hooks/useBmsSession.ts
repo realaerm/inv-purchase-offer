@@ -118,6 +118,7 @@ export function useBmsSession(): UseBmsSessionResult {
       if (result.MessageCode === 500 || result.MessageCode === 501) {
         setSessionState('expired')
         setError(new Error('Session has expired. Please reconnect.'))
+        throw new Error('Session has expired. Please reconnect.')
       }
 
       return result

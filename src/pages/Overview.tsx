@@ -129,9 +129,23 @@ export default function Overview() {
   }, []);
 
   const copyToClipboard = useCallback(() => {
-    navigator.clipboard.writeText(editedPrompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(editedPrompt).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Clipboard API unavailable (e.g. insecure context)
+        const textarea = document.createElement('textarea');
+        textarea.value = editedPrompt;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+    );
   }, [editedPrompt]);
 
   return (

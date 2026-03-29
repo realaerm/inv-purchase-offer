@@ -214,6 +214,7 @@ class ApiRequestQueue {
     });
     this.queue = [];
     this.pendingRequests.clear();
+    this.active = 0;
     this.completed = 0;
     this.failed = 0;
   }

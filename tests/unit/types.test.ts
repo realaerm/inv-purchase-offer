@@ -50,7 +50,7 @@ describe('DatabaseType', () => {
 // ---------------------------------------------------------------------------
 
 describe('SessionState', () => {
-  const validStates: SessionState[] = ['disconnected', 'connecting', 'connected', 'expired'];
+  const validStates: SessionState[] = ['idle', 'disconnected', 'connecting', 'connected', 'expired'];
 
   it.each(validStates)('accepts "%s" as a valid state', (state) => {
     const s: SessionState = state;
@@ -58,9 +58,9 @@ describe('SessionState', () => {
     expectTypeOf(s).toEqualTypeOf<SessionState>();
   });
 
-  it('is a union of exactly 4 states', () => {
+  it('is a union of exactly 5 states', () => {
     expectTypeOf<SessionState>().toEqualTypeOf<
-      'disconnected' | 'connecting' | 'connected' | 'expired'
+      'idle' | 'disconnected' | 'connecting' | 'connected' | 'expired'
     >();
   });
 });
@@ -112,6 +112,7 @@ describe('Session', () => {
         version: '1.0.0',
         environment: 'production',
       },
+      isLocalApi: false,
     };
 
     expect(session.sessionId).toBe('abc-123');
