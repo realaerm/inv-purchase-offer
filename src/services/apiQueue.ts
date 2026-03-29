@@ -3,21 +3,25 @@
 // Manages concurrent API calls with rate limiting, deduplication, and retry
 // =============================================================================
 
-/** Maximum concurrent API calls */
-const MAX_CONCURRENT_CALLS = 3;
+// ---------------------------------------------------------------------------
+// Defaults
+// ---------------------------------------------------------------------------
 
-/** Maximum retry attempts for rate-limited requests */
-const MAX_RETRY_ATTEMPTS = 3;
-
-/** Base delay for exponential backoff (ms) */
-const BASE_RETRY_DELAY_MS = 1000;
-
-/** Maximum backoff delay (ms) */
-const MAX_RETRY_DELAY_MS = 30000;
+const DEFAULT_MAX_CONCURRENT = 3;
+const DEFAULT_MAX_RETRY_ATTEMPTS = 3;
+const DEFAULT_BASE_RETRY_DELAY_MS = 1000;
+const DEFAULT_MAX_RETRY_DELAY_MS = 30000;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+interface ApiQueueOptions {
+  maxConcurrent?: number;
+  maxRetryAttempts?: number;
+  baseRetryDelayMs?: number;
+  maxRetryDelayMs?: number;
+}
 
 interface QueuedRequest<T> {
   id: string;
@@ -39,11 +43,23 @@ interface ApiQueueStats {
 // ---------------------------------------------------------------------------
 
 class ApiRequestQueue {
+  private readonly maxConcurrent: number;
+  private readonly maxRetryAttempts: number;
+  private readonly baseRetryDelayMs: number;
+  private readonly maxRetryDelayMs: number;
+
   private queue: QueuedRequest<unknown>[] = [];
   private active = 0;
   private completed = 0;
   private failed = 0;
   private pendingRequests = new Map<string, Promise<unknown>>();
+
+  constructor(options?: ApiQueueOptions) {
+    this.maxConcurrent = options?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
+    this.maxRetryAttempts = options?.maxRetryAttempts ?? DEFAULT_MAX_RETRY_ATTEMPTS;
+    this.baseRetryDelayMs = options?.baseRetryDelayMs ?? DEFAULT_BASE_RETRY_DELAY_MS;
+    this.maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
+  }
 
   /**
    * Calculate backoff delay with exponential increase and jitter
@@ -53,21 +69,21 @@ class ApiRequestQueue {
     if (retryAfter) {
       const seconds = parseInt(retryAfter, 10);
       if (!isNaN(seconds)) {
-        return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+        return Math.min(seconds * 1000, this.maxRetryDelayMs);
       }
     }
 
     // Exponential backoff with jitter: base * 2^retry + random(0, 1000)
-    const exponentialDelay = BASE_RETRY_DELAY_MS * Math.pow(2, retryCount);
+    const exponentialDelay = this.baseRetryDelayMs * Math.pow(2, retryCount);
     const jitter = Math.random() * 1000;
-    return Math.min(exponentialDelay + jitter, MAX_RETRY_DELAY_MS);
+    return Math.min(exponentialDelay + jitter, this.maxRetryDelayMs);
   }
 
   /**
    * Process the next request in the queue
    */
   private processQueue(): void {
-    if (this.active >= MAX_CONCURRENT_CALLS || this.queue.length === 0) {
+    if (this.active >= this.maxConcurrent || this.queue.length === 0) {
       return;
     }
 
@@ -90,17 +106,17 @@ class ApiRequestQueue {
       const err = error instanceof Error ? error : new Error(String(error));
 
       // Check if this is a rate limit error and we should retry
-      if (this.isRateLimitError(err) && request.retryCount < MAX_RETRY_ATTEMPTS) {
+      if (this.isRateLimitError(err) && request.retryCount < this.maxRetryAttempts) {
         const retryAfter = this.extractRetryAfter(err);
         const delay = this.calculateBackoffDelay(request.retryCount, retryAfter);
 
-        console.warn(`[ApiQueue] Rate limited, retrying in ${delay}ms (attempt ${request.retryCount + 1}/${MAX_RETRY_ATTEMPTS})`);
+        console.warn(`[ApiQueue] Rate limited, retrying in ${delay}ms (attempt ${request.retryCount + 1}/${this.maxRetryAttempts})`);
 
-        // Schedule retry — decrement active here, skip finally decrement
+        // Free the concurrency slot before scheduling the retry
         this.active--;
         setTimeout(() => {
           request.retryCount++;
-          this.queue.unshift(request as QueuedRequest<unknown>); // Add to front of queue
+          this.queue.unshift(request as QueuedRequest<unknown>);
           this.processQueue();
         }, delay);
         return;
@@ -110,7 +126,8 @@ class ApiRequestQueue {
       this.failed++;
       request.reject(err);
     }
-    // Decrement active count and process next — only for non-retry paths
+    // Decrement active for non-retry paths (success or final failure).
+    // Retry path returns early after its own active-- above.
     this.active--;
     this.processQueue();
   }
@@ -189,7 +206,7 @@ class ApiRequestQueue {
   }
 
   /**
-   * Clear the queue (useful for cleanup on disconnect)
+   * Clear the queue and reset all counters (useful for cleanup on disconnect)
    */
   clear(): void {
     this.queue.forEach((request) => {
@@ -197,11 +214,14 @@ class ApiRequestQueue {
     });
     this.queue = [];
     this.pendingRequests.clear();
+    this.completed = 0;
+    this.failed = 0;
   }
 }
 
 // Singleton instance
 export const apiQueue = new ApiRequestQueue();
 
-// Re-export for testing
-export type { ApiQueueStats };
+// Export class for testing with fresh instances
+export { ApiRequestQueue };
+export type { ApiQueueOptions, ApiQueueStats };

@@ -123,6 +123,7 @@ export interface Session {
   connectedAt: Date;
   userInfo: UserInfo;
   systemInfo: SystemInfo;
+  isLocalApi: boolean;
 }
 
 // ---------------------------------------------------------------------------

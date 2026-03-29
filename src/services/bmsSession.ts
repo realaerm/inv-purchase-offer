@@ -31,6 +31,12 @@ export const SESSION_TIMEOUT_MS = 30_000;
 /** Timeout (ms) when executing a SQL query via the BMS API. */
 export const QUERY_TIMEOUT_MS = 60_000;
 
+/** Local HOSxP API gateway URL (users typically run it on the same machine). */
+export const LOCAL_API_URL = 'http://127.0.0.1:45011';
+
+/** Timeout (ms) for the local API probe — fast fail so it doesn't block connection. */
+export const LOCAL_PROBE_TIMEOUT_MS = 3_000;
+
 // ---------------------------------------------------------------------------
 // Session retrieval
 // ---------------------------------------------------------------------------
@@ -250,6 +256,57 @@ export async function executeSqlViaApi(
 }
 
 // ---------------------------------------------------------------------------
+// Local API detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Probe the local HOSxP API gateway at 127.0.0.1:45011.
+ *
+ * Users typically run the API gateway on the same machine as the browser.
+ * If the local endpoint responds successfully, we swap the remote tunnel URL
+ * for the local one — this avoids the latency and bandwidth cost of tunnelling.
+ *
+ * @returns A new {@link ConnectionConfig} pointing to the local API if reachable,
+ *          or the original config unchanged.
+ */
+export async function probeLocalApi(
+  config: ConnectionConfig,
+): Promise<{ config: ConnectionConfig; isLocal: boolean }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOCAL_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${LOCAL_API_URL}/api/sql`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.bearerToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sql: 'SELECT 1 as test', app: config.appIdentifier }),
+      signal: controller.signal,
+    });
+
+    if (response.ok) {
+      const data = await response.json() as SqlApiResponse;
+      if (data.MessageCode === 200) {
+        console.info(`[BmsSession] Local API detected at ${LOCAL_API_URL} — using local endpoint`);
+        return {
+          config: { ...config, apiUrl: LOCAL_API_URL },
+          isLocal: true,
+        };
+      }
+    }
+  } catch {
+    // Network error, timeout, or CORS — local API not available
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  console.info(`[BmsSession] Local API not available — using remote endpoint: ${config.apiUrl}`);
+  return { config, isLocal: false };
+}
+
+// ---------------------------------------------------------------------------
 // Database type detection
 // ---------------------------------------------------------------------------
 
@@ -285,21 +342,15 @@ export async function detectDatabaseType(config: ConnectionConfig): Promise<Data
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a unique request ID for deduplication
+ * Generate a unique request ID for deduplication.
+ *
+ * Uses the normalized SQL + connection key directly as the ID to avoid
+ * hash collisions that could cause one query to silently return another's
+ * result.
  */
 function generateRequestId(sql: string, config: ConnectionConfig): string {
-  // Normalize SQL by removing extra whitespace for better deduplication
   const normalizedSql = sql.trim().replace(/\s+/g, ' ').toLowerCase();
-  const content = `${config.apiUrl}:${config.bearerToken.slice(-8)}:${normalizedSql}`;
-
-  // Simple hash
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `sql-${hash.toString(36)}`;
+  return `sql:${config.apiUrl}:${config.bearerToken.slice(-8)}:${normalizedSql}`;
 }
 
 /**

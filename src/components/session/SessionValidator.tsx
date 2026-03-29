@@ -163,7 +163,7 @@ export function SessionValidator({ children }: SessionValidatorProps) {
     );
   }
 
-  if (sessionState === 'disconnected') {
+  if (sessionState === 'disconnected' || sessionState === 'idle') {
     return (
       <LoginForm
         onConnect={connectSession}

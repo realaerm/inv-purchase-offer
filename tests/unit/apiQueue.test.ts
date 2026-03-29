@@ -3,22 +3,27 @@
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiQueue } from '@/services/apiQueue';
+import { ApiRequestQueue } from '@/services/apiQueue';
+
+/** Queue options that eliminate retry delays for fast tests */
+const ZERO_DELAY = { baseRetryDelayMs: 0, maxRetryDelayMs: 0 };
 
 describe('ApiRequestQueue', () => {
+  let queue: ApiRequestQueue;
+
   beforeEach(() => {
-    apiQueue.clear();
+    queue = new ApiRequestQueue();
   });
 
   afterEach(() => {
-    apiQueue.clear();
+    queue.clear();
   });
 
   describe('enqueue', () => {
     it('MUST execute a request and return the result', async () => {
       const executor = vi.fn().mockResolvedValue({ data: 'test' });
 
-      const result = await apiQueue.enqueue('test-1', executor);
+      const result = await queue.enqueue('test-1', executor);
 
       expect(result).toEqual({ data: 'test' });
       expect(executor).toHaveBeenCalledTimes(1);
@@ -27,17 +32,13 @@ describe('ApiRequestQueue', () => {
     it('MUST deduplicate identical requests', async () => {
       const executor = vi.fn().mockResolvedValue({ data: 'shared' });
 
-      // Make two identical requests
-      const promise1 = apiQueue.enqueue('dup-1', executor);
-      const promise2 = apiQueue.enqueue('dup-1', executor);
+      const promise1 = queue.enqueue('dup-1', executor);
+      const promise2 = queue.enqueue('dup-1', executor);
 
       const [result1, result2] = await Promise.all([promise1, promise2]);
 
-      // Both should get the same result
       expect(result1).toEqual({ data: 'shared' });
       expect(result2).toEqual({ data: 'shared' });
-
-      // But executor should only be called once
       expect(executor).toHaveBeenCalledTimes(1);
     });
 
@@ -45,14 +46,13 @@ describe('ApiRequestQueue', () => {
       const executor1 = vi.fn().mockResolvedValue({ data: 'first' });
       const executor2 = vi.fn().mockResolvedValue({ data: 'second' });
 
-      const promise1 = apiQueue.enqueue('diff-1', executor1);
-      const promise2 = apiQueue.enqueue('diff-2', executor2);
+      const promise1 = queue.enqueue('diff-1', executor1);
+      const promise2 = queue.enqueue('diff-2', executor2);
 
       const [result1, result2] = await Promise.all([promise1, promise2]);
 
       expect(result1).toEqual({ data: 'first' });
       expect(result2).toEqual({ data: 'second' });
-
       expect(executor1).toHaveBeenCalledTimes(1);
       expect(executor2).toHaveBeenCalledTimes(1);
     });
@@ -60,52 +60,133 @@ describe('ApiRequestQueue', () => {
     it('MUST reject on non-rate-limit errors', async () => {
       const executor = vi.fn().mockRejectedValue(new Error('Network error'));
 
-      await expect(apiQueue.enqueue('error-1', executor)).rejects.toThrow('Network error');
+      await expect(queue.enqueue('error-1', executor)).rejects.toThrow('Network error');
       expect(executor).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('getStats', () => {
-    it('MUST return queue statistics', async () => {
-      const executor = vi.fn().mockResolvedValue({ data: 'test' });
+  describe('retry on rate limit', () => {
+    it('MUST retry on HTTP 429 errors and succeed', async () => {
+      const retryQueue = new ApiRequestQueue(ZERO_DELAY);
 
-      apiQueue.enqueue('stats-1', executor);
+      const executor = vi.fn()
+        .mockRejectedValueOnce(new Error('มีการร้องขอบ่อยเกินไป (HTTP 429). กรุณารอสักครู่แล้วลองใหม่อีกครั้ง'))
+        .mockResolvedValueOnce({ data: 'success after retry' });
 
-      const statsBefore = apiQueue.getStats();
-      expect(statsBefore.pending).toBeGreaterThanOrEqual(0);
-      expect(statsBefore.completed).toBeGreaterThanOrEqual(0);
+      const result = await retryQueue.enqueue('retry-1', executor);
 
-      // Wait for completion
-      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(result).toEqual({ data: 'success after retry' });
+      expect(executor).toHaveBeenCalledTimes(2);
 
-      const statsAfter = apiQueue.getStats();
-      expect(statsAfter.completed).toBeGreaterThanOrEqual(1);
+      retryQueue.clear();
+    });
+
+    it('MUST reject after max retry attempts exceeded', async () => {
+      const retryQueue = new ApiRequestQueue(ZERO_DELAY);
+
+      const rateLimitError = new Error('มีการร้องขอบ่อยเกินไป (HTTP 429). กรุณารอสักครู่แล้วลองใหม่อีกครั้ง');
+      const executor = vi.fn().mockRejectedValue(rateLimitError);
+
+      await expect(retryQueue.enqueue('retry-exhaust-1', executor)).rejects.toThrow('429');
+      // 1 initial + 3 retries = 4 calls
+      expect(executor).toHaveBeenCalledTimes(4);
+
+      retryQueue.clear();
     });
   });
 
-  describe('clear', () => {
+  describe('getStats', () => {
+    it('MUST track completed requests', async () => {
+      const executor = vi.fn().mockResolvedValue({ data: 'test' });
+
+      await queue.enqueue('stats-1', executor);
+
+      const stats = queue.getStats();
+      expect(stats.completed).toBe(1);
+      expect(stats.failed).toBe(0);
+      expect(stats.pending).toBe(0);
+      expect(stats.active).toBe(0);
+    });
+
     it('MUST track failed requests', async () => {
       const executor = vi.fn().mockRejectedValue(new Error('Test error'));
 
       try {
-        await apiQueue.enqueue('fail-1', executor);
+        await queue.enqueue('fail-1', executor);
       } catch {
         // Expected
       }
 
-      const stats = apiQueue.getStats();
-      expect(stats.failed).toBeGreaterThanOrEqual(1);
+      const stats = queue.getStats();
+      expect(stats.failed).toBe(1);
+      expect(stats.completed).toBe(0);
+    });
+
+    it('MUST reset counters on clear', async () => {
+      const executor = vi.fn().mockResolvedValue({ data: 'test' });
+      await queue.enqueue('clear-stats-1', executor);
+
+      queue.clear();
+
+      const stats = queue.getStats();
+      expect(stats.completed).toBe(0);
+      expect(stats.failed).toBe(0);
+    });
+  });
+
+  describe('clear', () => {
+    it('MUST reject pending requests on clear', async () => {
+      // Fill concurrency slots with blocking requests
+      const blockingPromises: Promise<unknown>[] = [];
+      for (let i = 0; i < 3; i++) {
+        blockingPromises.push(
+          queue.enqueue(`blocking-${i}`, () => new Promise(() => {})) // never resolves
+        );
+      }
+
+      // This one is queued but not yet executing
+      const queued = queue.enqueue('queued-1', () => Promise.resolve('should not resolve'));
+
+      queue.clear();
+
+      await expect(queued).rejects.toThrow('Request cancelled');
+
+      // Suppress unhandled rejections from blocking promises
+      blockingPromises.forEach((p) => p.catch(() => {}));
     });
   });
 
   describe('concurrency', () => {
-    it('MUST handle multiple concurrent requests', async () => {
+    it('MUST limit concurrent execution to 3', async () => {
+      let maxConcurrent = 0;
+      let currentConcurrent = 0;
+
+      const makeExecutor = () => async () => {
+        currentConcurrent++;
+        maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+        // Use a real microtask delay instead of setTimeout
+        await new Promise(resolve => resolve(undefined));
+        await new Promise(resolve => resolve(undefined));
+        currentConcurrent--;
+        return { ok: true };
+      };
+
+      const promises = Array(6).fill(null).map((_, i) =>
+        queue.enqueue(`conc-${i}`, makeExecutor())
+      );
+
+      await Promise.all(promises);
+
+      expect(maxConcurrent).toBeLessThanOrEqual(3);
+    });
+
+    it('MUST handle multiple concurrent requests returning correct results', async () => {
       const executors = Array(5).fill(null).map((_, i) =>
         vi.fn().mockResolvedValue({ id: i })
       );
 
       const promises = executors.map((exec, i) =>
-        apiQueue.enqueue(`concurrent-${i}`, exec)
+        queue.enqueue(`concurrent-${i}`, exec)
       );
 
       const results = await Promise.all(promises);

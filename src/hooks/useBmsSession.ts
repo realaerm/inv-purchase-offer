@@ -14,6 +14,7 @@ import {
   executeSqlViaApiQueued,
   clearApiQueue,
   detectDatabaseType,
+  probeLocalApi,
 } from '@/services/bmsSession'
 import {
   setSessionCookie,
@@ -55,12 +56,15 @@ export function useBmsSession(): UseBmsSessionResult {
         )
       }
 
-      const config = extractConnectionConfig(response)
+      const remoteConfig = extractConnectionConfig(response)
       const userInfo = extractUserInfo(response)
       const systemInfo = extractSystemInfo(response)
 
-      const dbType: DatabaseType = await detectDatabaseType(config)
-      const updatedConfig: ConnectionConfig = { ...config, databaseType: dbType }
+      // Probe local API gateway — use it if available, fall back to remote tunnel
+      const { config: localOrRemoteConfig, isLocal } = await probeLocalApi(remoteConfig)
+
+      const dbType: DatabaseType = await detectDatabaseType(localOrRemoteConfig)
+      const updatedConfig: ConnectionConfig = { ...localOrRemoteConfig, databaseType: dbType }
 
       const newSession: Session = {
         sessionId,
@@ -72,6 +76,7 @@ export function useBmsSession(): UseBmsSessionResult {
         connectedAt: new Date(),
         userInfo,
         systemInfo,
+        isLocalApi: isLocal,
       }
 
       setSession(newSession)

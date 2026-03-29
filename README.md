@@ -1,202 +1,147 @@
-# BMS Session ID Demo Dashboard
+# BMS Session ID — Blank Dashboard Template
 
-แดชบอร์ด KPI สำหรับระบบ HOSxP ที่ใช้ BMS Session ID ในการเชื่อมต่อและดึงข้อมูลจากฐานข้อมูลโรงพยาบาล รองรับทั้ง MySQL และ PostgreSQL
+Blank starter template for building hospital dashboards with **HOSxP** data via BMS Session API. Clone this repo, pick a dashboard template from the overview page, and let AI generate a full dashboard automatically.
 
-## ภาพรวม
+## Quick Start
 
-ระบบนี้เป็น Single-Page Application ที่แสดงข้อมูลสถิติโรงพยาบาลแบบ real-time ผ่าน BMS Session API โดยรองรับการตรวจจับประเภทฐานข้อมูลอัตโนมัติ และสร้าง SQL ที่เหมาะสมกับแต่ละฐานข้อมูล
+```bash
+npm install
+npm run dev
+```
 
-### หน้าจอหลัก
+Open `http://localhost:5173/?bms-session-id=YOUR_SESSION_ID`
 
-| หน้า | รายละเอียด |
-|------|-----------|
-| **ภาพรวม** | KPI cards (OPD/IPD/ER), สถิติรวม, แพทย์ยอดนิยม, การเข้ารับบริการล่าสุด, ปริมาณงานแผนก, ข้อมูลเซสชัน |
-| **แนวโน้ม** | แนวโน้มรายวัน (Area), รายสัปดาห์ (Radar), รายเดือน (Line), กลุ่มโรคที่พบบ่อย, ค่ายา, สถิติการเสียชีวิต |
-| **แผนก** | วิเคราะห์แผนก drill-down, ปริมาณงานแพทย์, แนวโน้มรายวันของแผนก |
-| **ข้อมูลประชากร** | การกระจายเพศ (Donut), กลุ่มอายุ (Bar), สิทธิ์การรักษา (Horizontal Bar) |
-
-### คุณสมบัติ
-
-- เชื่อมต่อผ่าน BMS Session ID (URL parameter, cookie, หรือ manual input)
-- ตรวจจับ MySQL/PostgreSQL อัตโนมัติด้วย `SELECT VERSION()`
-- สร้าง SQL ที่รองรับทั้งสองฐานข้อมูลผ่าน Query Builder
-- UI ภาษาไทยทั้งหมด รองรับฟอนต์ Sarabun
-- Responsive design (desktop + tablet)
-- Loading states, error handling, empty states ทุกจุด
-- Dark/light theme support
-
-## เทคโนโลยี
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | React 19 + TypeScript 5.x (strict mode) |
-| Build | Vite 6 |
-| UI | shadcn/ui + Tailwind CSS v4 |
-| Charts | Recharts 3.x (Area, Bar, Line, Radar, Pie) |
-| Testing | Vitest 4.x + React Testing Library + MSW 2.x |
-| Font | Google Sarabun |
-| Deploy | Docker (nginx:alpine) |
-
-## การติดตั้ง
-
-### วิธีที่ 1: Docker (แนะนำ)
+### Docker
 
 ```bash
 docker compose up -d
 ```
 
-เข้าใช้งาน: `http://localhost:3080/?bms-session-id=YOUR_SESSION_ID`
+Open `http://localhost:3080/?bms-session-id=YOUR_SESSION_ID`
 
-### วิธีที่ 2: Development
+## How It Works
 
-```bash
-# ติดตั้ง dependencies
-npm install
+1. User arrives with `?bms-session-id=GUID` in the URL
+2. App retrieves session config from `https://hosxp.net/phapi/PasteJSON`
+3. App probes local API gateway at `http://127.0.0.1:45011` — uses it if available (faster), falls back to remote tunnel
+4. Auto-detects database type (MySQL/PostgreSQL) via `SELECT VERSION()`
+5. Overview page shows 18 dashboard templates grouped by department
+6. User picks a template, edits the prompt if needed, copies it, and pastes into an AI chat to generate the dashboard
 
-# รัน development server
-npm run dev
-```
+### Session Input Methods
 
-เข้าใช้งาน: `http://localhost:5173/?bms-session-id=YOUR_SESSION_ID`
+| Method | Description |
+|--------|-------------|
+| URL parameter | `?bms-session-id=GUID` — saved to cookie, removed from URL |
+| Cookie | Persisted for 7 days, auto-reconnects on next visit |
+| Manual input | Login form for pasting a session ID |
 
-## Session ID สำหรับทดสอบ
+### Local API Detection
 
-BMS Session ID จะได้รับจากระบบ HOSxP Dashboard โดยอัตโนมัติ เมื่อผู้ใช้เปิดลิงก์จากเมนู Dashboard ในโปรแกรม HOSxP ระบบจะส่ง `bms-session-id` มาใน URL parameter
+When connecting, the app automatically checks if the HOSxP API gateway is running locally on port 45011. If reachable, all API calls use `http://127.0.0.1:45011` instead of the remote `*.tunnel.hosxp.net` endpoint. This eliminates tunnel latency for users running the gateway on the same machine.
 
-### วิธีรับ Session ID
+## Tech Stack
 
-1. เปิดโปรแกรม **HOSxP** บนเครื่องที่มี BMS API Server ทำงานอยู่
-2. ไปที่เมนู **Dashboard** ในระบบ HOSxP
-3. ระบบจะสร้าง URL พร้อม session ID ในรูปแบบ:
-   ```
-   https://your-dashboard.com/?bms-session-id=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-   ```
-4. Session ID จะถูกสร้างใหม่ทุกครั้งที่เปิดใช้งาน และมีอายุตามที่ BMS API Server กำหนด (ค่าเริ่มต้น 30 วัน)
+| Layer | Technology |
+|-------|------------|
+| Framework | React 19 + TypeScript 5.x (strict mode) |
+| Build | Vite 6 |
+| UI | shadcn/ui + Tailwind CSS v4 |
+| Tables | TanStack Table v8 |
+| Charts | Recharts 3.x |
+| Testing | Vitest + React Testing Library + MSW |
+| Date | date-fns |
+| MCP | vite-plugin-mcp (dev tools for AI coding assistants) |
 
-### การใช้งานกับ Demo Dashboard
+## Dashboard Templates (21)
 
-คัดลอก Session ID จาก URL ของ HOSxP Dashboard แล้วนำมาใช้กับ Demo Dashboard:
+Templates are grouped by hospital department on the overview page:
 
-```
-http://localhost:3080/?bms-session-id=YOUR_SESSION_ID_FROM_HOSXP
-```
+| Group | Templates |
+|-------|-----------|
+| **Patient Services** | OPD, IPD, Appointments, ER, OPD Screening (Nurse), Doctor Workbench, Refer |
+| **Clinical Support** | Lab, Radiology, Pharmacy, Dental, Operating Room |
+| **Community Health (PCU)** | Population, NCD Screening, ANC/Labor (Acc.2), MCH (Acc.3), EPI/Vaccine (Acc.4), School Health (Acc.5), Family Planning (Acc.6) |
+| **Administration** | Finance/Revenue, Medical Records |
 
-> **หมายเหตุ**: Session ID เป็นค่าเฉพาะของแต่ละเครื่อง/ผู้ใช้ ไม่สามารถใช้ข้ามเครื่องได้ และจะหมดอายุเมื่อ BMS API Server รีสตาร์ท
+Each template generates a prompt with specific KPIs, chart types, and data points based on HOSxP knowledge base.
 
-## การเชื่อมต่อ BMS Session
-
-ระบบรับ Session ID ได้ 3 ช่องทาง:
-
-1. **URL Parameter**: `?bms-session-id=GUID` — ระบบจะดึง session, เก็บ cookie, และลบออกจาก URL อัตโนมัติ
-2. **Cookie**: เก็บ session ID ไว้ 7 วัน เมื่อเปิดใช้งานครั้งถัดไปจะเชื่อมต่ออัตโนมัติ
-3. **Manual Input**: ป้อน session ID ผ่านหน้า login
-
-### ขั้นตอนการเชื่อมต่อ
-
-```
-URL/Cookie/Input → PasteJSON API → Session Data → SELECT VERSION() → Database Type → Dashboard
-```
-
-1. ดึงข้อมูล session จาก `https://hosxp.net/phapi/PasteJSON?Action=GET&code=SESSION_ID`
-2. ตรวจจับประเภทฐานข้อมูลด้วย `SELECT VERSION()`
-3. สร้าง SQL ที่เหมาะสมผ่าน Query Builder
-4. แสดงผลข้อมูล KPI บนแดชบอร์ด
-
-## ตารางฐานข้อมูลที่ใช้
-
-| ตาราง | ข้อมูล | ใช้ในหน้า |
-|-------|--------|----------|
-| `ovst` | การเข้ารับบริการผู้ป่วยนอก | ทุกหน้า |
-| `ipt` | ผู้ป่วยใน | ภาพรวม |
-| `er_regist` | ห้องฉุกเฉิน | ภาพรวม |
-| `kskdepartment` | ข้อมูลแผนก | ภาพรวม, แผนก |
-| `doctor` | ข้อมูลแพทย์ | ภาพรวม, แผนก |
-| `patient` | ข้อมูลผู้ป่วย | ข้อมูลประชากร |
-| `ovst_patient_record` | ข้อมูลผู้ป่วยต่อ visit (fallback) | ข้อมูลประชากร |
-| `pttype` | สิทธิ์การรักษา | ข้อมูลประชากร |
-| `ovstdiag` + `icd101` | การวินิจฉัยโรค (ICD10) | แนวโน้ม |
-| `opitemrece` + `drugitems` | ยาและค่าใช้จ่าย | แนวโน้ม |
-| `death` | สถิติการเสียชีวิต | แนวโน้ม |
-| `opdscreen` | สัญญาณชีพ | ภาพรวม |
-
-## คำสั่งสำหรับพัฒนา
-
-```bash
-# Development server
-npm run dev
-
-# Build สำหรับ production
-npm run build
-
-# รัน test ทั้งหมด
-npm test
-
-# รัน test แยกตามประเภท
-npm run test:unit          # Unit tests
-npm run test:component     # Component tests
-npm run test:integration   # Integration tests
-npm run test:api           # API contract tests
-
-# Coverage report
-npm run test:coverage
-
-# Lint
-npm run lint
-```
-
-## โครงสร้างโปรเจค
+## Project Structure
 
 ```
 src/
-├── services/
-│   ├── bmsSession.ts        # เชื่อมต่อ session, เรียก API
-│   ├── queryBuilder.ts      # สร้าง SQL สำหรับ MySQL/PostgreSQL
-│   └── kpiService.ts        # ดึงข้อมูล KPI ทุกหน้า
-├── hooks/
-│   ├── useBmsSession.ts     # จัดการ session state
-│   └── useQuery.ts          # จัดการ loading/error/data
-├── contexts/
-│   └── BmsSessionContext.tsx # แชร์ session state ทั่วแอป
-├── components/
-│   ├── ui/                  # shadcn/ui components
-│   ├── layout/              # Header, Layout
-│   ├── dashboard/           # KpiCard, Table, DatePicker
-│   ├── charts/              # Recharts components
-│   └── session/             # Login, Expired, Validator
-├── pages/                   # 4 หน้าหลัก
-├── types/                   # TypeScript interfaces
-└── utils/                   # Cookie, date formatting
-
+  services/
+    bmsSession.ts        # Session retrieval, SQL execution, local API probe
+    apiQueue.ts          # Concurrency control, deduplication, retry on 429
+    queryBuilder.ts      # MySQL/PostgreSQL SQL generation
+  hooks/
+    useBmsSession.ts     # Session state management
+    useQuery.ts          # Async query lifecycle (loading/error/success)
+  contexts/
+    BmsSessionContext.tsx # Session provider, auto-connect from URL/cookie
+  components/
+    ui/                  # shadcn/ui primitives (button, card, dialog, etc.)
+    layout/              # AppHeader, AppLayout, LoadingSpinner
+    session/             # LoginForm, SessionExpired, SessionValidator
+  pages/
+    Overview.tsx         # Main page with grouped dashboard templates
+  types/
+    index.ts             # TypeScript interfaces
+  utils/
+    sessionStorage.ts    # Cookie CRUD, URL parameter handling
+    dateUtils.ts         # Date formatting helpers
 tests/
-├── unit/                    # 5 test files
-├── component/               # 2 test files
-├── integration/             # (planned)
-└── api/                     # 3 test files (MSW)
+  unit/                  # Service and utility tests
+  component/             # React component tests
+  integration/           # Cross-module flow tests
+  api/                   # BMS Session API contract tests
 ```
 
-## รองรับฐานข้อมูล
+## API Request Queue
 
-Query Builder จะสร้าง SQL ที่เหมาะสมตามประเภทฐานข้อมูลอัตโนมัติ:
+All SQL queries go through `executeSqlViaApiQueued()` which provides:
 
-| ฟังก์ชัน | MySQL | PostgreSQL |
+- **Concurrency limiting** — max 3 concurrent API calls
+- **Request deduplication** — identical concurrent queries share the same result
+- **Automatic retry** — exponential backoff on HTTP 429 (rate limit)
+- **Queue cleanup** — pending requests cancelled on disconnect
+
+## Development
+
+```bash
+npm run dev              # Start dev server (port 5173)
+npm test                 # Run all tests
+npm run test:unit        # Unit tests only
+npm run test:coverage    # Coverage report (80% threshold)
+npm run lint             # ESLint
+npm run build            # Production build
+```
+
+### MCP Dev Tools
+
+This project includes `vite-plugin-mcp` which exposes an MCP server at `http://localhost:5173/__mcp/sse` during development. AI coding assistants (Claude Code, Cursor, etc.) can connect to it for Vite config and module graph information. The `.mcp.json` file is auto-configured when the dev server starts.
+
+## BMS Session API Reference
+
+- **Session retrieval**: `GET https://hosxp.net/phapi/PasteJSON?Action=GET&code={sessionId}`
+- **SQL execution**: `POST {bms_url}/api/sql` with `Authorization: Bearer {token}`
+- **Allowed SQL**: SELECT, DESCRIBE, EXPLAIN, SHOW, WITH (read-only)
+- **Blocked tables**: opduser, opdconfig, sys_var, user_var, user_jwt (max 20 tables per query)
+
+See [docs/BMS-SESSION-FOR-DEV.md](docs/BMS-SESSION-FOR-DEV.md) for the full API specification.
+
+## Database Support
+
+The query builder auto-generates SQL for the detected database:
+
+| Function | MySQL | PostgreSQL |
 |----------|-------|------------|
-| วันปัจจุบัน | `CURDATE()` | `CURRENT_DATE` |
-| จัดรูปวันที่ | `DATE_FORMAT(col, '%Y-%m')` | `TO_CHAR(col, 'YYYY-MM')` |
-| ลบวัน | `DATE_SUB(CURDATE(), INTERVAL 30 DAY)` | `CURRENT_DATE - INTERVAL '30 days'` |
-| คำนวณอายุ | `TIMESTAMPDIFF(YEAR, birthday, CURDATE())` | `EXTRACT(YEAR FROM AGE(birthday))` |
-| ดึงชั่วโมง | `HOUR(vsttime)` | `EXTRACT(HOUR FROM vsttime)::int` |
-| แปลงเป็น text | `CAST(col AS CHAR)` | `col::text` |
-
-## API Reference
-
-### BMS Session API
-
-- **ดึง session**: `GET https://hosxp.net/phapi/PasteJSON?Action=GET&code=SESSION_ID`
-- **Query ข้อมูล**: `POST {bms_url}/api/sql` พร้อม `Authorization: Bearer {token}`
-- **SQL ที่รองรับ**: SELECT, DESCRIBE, EXPLAIN, SHOW, WITH (CTE)
-- **ตารางที่ถูกบล็อก**: opduser, opdconfig, sys_var, user_var, user_jwt
-
-ดูรายละเอียดเพิ่มเติมใน [docs/BMS-SESSION-FOR-DEV.md](docs/BMS-SESSION-FOR-DEV.md)
+| Current date | `CURDATE()` | `CURRENT_DATE` |
+| Date format | `DATE_FORMAT(col, '%Y-%m')` | `TO_CHAR(col, 'YYYY-MM')` |
+| Date subtract | `DATE_SUB(CURDATE(), INTERVAL 30 DAY)` | `CURRENT_DATE - INTERVAL '30 days'` |
+| Age calc | `TIMESTAMPDIFF(YEAR, bday, CURDATE())` | `EXTRACT(YEAR FROM AGE(bday))` |
+| Hour extract | `HOUR(col)` | `EXTRACT(HOUR FROM col)::int` |
+| Cast to text | `CAST(col AS CHAR)` | `col::text` |
 
 ## License
 

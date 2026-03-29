@@ -358,6 +358,21 @@
   margin: 0.375rem 0 0 0;
 }
 
+/* Templates Group */
+.templates-group {
+  margin-bottom: 2rem;
+}
+
+.templates-group-title {
+  font-family: 'Fraunces', serif;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
 /* Templates Grid */
 .templates-grid {
   display: grid;

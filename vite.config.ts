@@ -2,10 +2,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { ViteMcp } from 'vite-plugin-mcp'
 import path from 'path'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), ViteMcp()],
   define: {
     'import.meta.env.BMS_SESSION_ID': JSON.stringify(process.env.BMS_SESSION_ID || ''),
   },

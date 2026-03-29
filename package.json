@@ -23,6 +23,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^1.7.0",
+    "radix-ui": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-is": "^19.2.4",
@@ -50,6 +51,7 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.2",
     "vite": "^8.0.2",
+    "vite-plugin-mcp": "^0.3.2",
     "vitest": "^4.1.1"
   }
 }
