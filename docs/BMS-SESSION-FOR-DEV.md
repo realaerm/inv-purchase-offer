@@ -1,6 +1,6 @@
-# BMS Session Specification for Developers v2.0
+# BMS Session Specification for Developers v3.0
 
-> **IMPORTANT NOTICE**: This is a developer-focused specification for building applications that use the BMS Session system for **read-only access to non-sensitive data**. This document intentionally excludes authentication key algorithms for sensitive data access and write operations.
+> **IMPORTANT NOTICE**: This is a developer-focused specification for building applications that use the BMS Session system. This document covers **read-only access** via `/api/sql` and the **REST CRUD API** via `/api/rest`. Authentication key algorithms for sensitive data access are intentionally excluded.
 >
 > **Design Philosophy**: With good application design, it is NOT necessary to access or store sensitive data to display useful information and statistical dashboards. Applications should be designed to work with aggregated, anonymized, or non-personally-identifiable data whenever possible.
 
@@ -16,9 +16,10 @@ The BMS (Bangkok Medical Software) Session system provides secure authentication
 
 **Scope of This Document:**
 - Read-only operations via `/api/sql` endpoint
+- RESTful CRUD operations via `/api/rest` endpoint (requires marketplace token for writes)
 - Session management and validation
 - Building dashboards and statistical displays
-- Accessing non-sensitive aggregate data
+- Building marketplace add-on applications with table-level access control
 
 ## Architecture Flow
 
@@ -90,6 +91,16 @@ Sample JSON response from `https://hosxp.net/phapi/PasteJSON?Action=GET&code=xxx
 ```
 
 ## API Endpoints
+
+### Endpoint Overview
+
+| Endpoint | Methods | Purpose | Auth Required |
+|----------|---------|---------|---------------|
+| `/api/Status` | GET | Health check | No |
+| `/api/SessionID` | GET | Retrieve session token | No (if enabled) |
+| `/api/sql` | GET, POST | Raw SQL queries (read-only) | Bearer token |
+| `/api/rest/{table}[/{id}]` | GET, POST, PUT, DELETE | RESTful CRUD operations | Bearer token + marketplace token for writes |
+| `/api/function` | POST | Built-in server functions | Bearer token |
 
 ### `/api/sql` - Query Endpoint (Read Operations)
 
@@ -222,6 +233,357 @@ POST /api/sql
 
 ---
 
+### `/api/rest` - RESTful CRUD Endpoint
+
+**Purpose**: Provides a config-driven RESTful API for reading and writing hospital data with automatic table joins, filtering, pagination, and marketplace-based access control.
+
+**Supported Methods**: GET, POST, PUT, DELETE
+
+**URL Pattern**: `/api/rest/{table_name}[/{resource_id}]`
+
+**Authentication**:
+- **Bearer token** (required): Same JWT session token as `/api/sql`
+- **Marketplace token** (optional): Required for write operations. Controls table-level read/write permissions.
+
+**Permission Model**:
+| Scenario | GET | POST/PUT/DELETE |
+|----------|-----|-----------------|
+| JWT only (no marketplace token) | Allowed | Denied (403) |
+| Marketplace token with READONLY grant | Allowed | Denied (403) |
+| Marketplace token with READWRITE grant | Allowed | Allowed |
+
+#### Available Tables
+
+110 tables are available, organized by module:
+
+| Module | Tables |
+|--------|--------|
+| Patient & Registration | `patient`, `pname` |
+| OPD (Outpatient) | `ovst`, `ovstdiag`, `opdscreen`, `opdscreen_cc_list`, `vn_stat`, `er_regist`, `ovst_vaccine`, `ovst_doctor_diag` |
+| IPD (Inpatient) | `ipt`, `iptdiag`, `an_stat`, `ipt_newborn`, `ipt_pttype` |
+| Labor & Delivery | `ipt_labour`, `ipt_labour_infant`, `ipt_labour_complication` |
+| Lab & Diagnostics | `lab_head`, `lab_order`, `lab_items`, `lab_items_group`, `lab_specimen_items`, `xray_head`, `xray_report` |
+| Pharmacy & Drug | `opitemrece`, `drugitems`, `s_drugitems`, `nondrugitems` |
+| Operation / Surgery | `operation_list`, `operation_set` |
+| Dental | `dtmain`, `dtdn`, `dttm` |
+| Appointment | `oapp` |
+| Referral | `referout`, `referin` |
+| Finance & Billing | `income`, `paidst`, `pttype`, `rcpt_print`, `rcpt_debt` |
+| Master / Reference | `doctor`, `ward`, `roomno`, `bedno`, `spclty`, `kskdepartment`, `clinic`, `icd101`, `hospcode`, `epi_vaccine` |
+| PCU - Person & Community | `person`, `village`, `house`, `person_chronic`, `person_vaccine`, `person_death`, `person_screen_head`, `person_screen_result`, `clinicmember`, `surveil_member` |
+| PCU - ANC / Pregnancy | `person_anc`, `person_anc_service`, `person_labour` |
+| PCU - WBC (Well Baby) | `person_wbc`, `person_wbc_service` |
+| PCU - EPI (Vaccination) | `person_epi`, `person_epi_vaccine`, `person_epi_nutrition` |
+| PCU - School Health | `village_student` |
+| PCU - Women's Health | `person_women`, `person_women_service` |
+| Traditional Medicine | `health_med_service`, `health_med_service_diagnosis`, `health_med_service_treatment`, `health_med_service_medication`, `health_med_service_operation`, `health_med_service_result`, `health_med_provider`, `health_med_items`, `health_med_queue` |
+| Physical Therapy | `physic_main`, `physic_main_ipd`, `physic_member`, `physic_pe`, `physic_pt_send` |
+| Visit Patient Type | `visit_pttype`, `visit_pttype_change`, `visit_pttype_charge`, `visit_pttype_income_cover`, `visit_pttype_item_cover` |
+| IPD Patient Type | `ipt_pttype_check`, `ipt_pttype_income_cover` |
+| Doctor Workbench | `opdscreen_doctor_pe`, `opdscreen_pe`, `opdscreen_bp`, `opdscreen_ros`, `opdscreen_fbs`, `opdscreen_fp`, `opdscreen_revisit`, `ovst_doctor_sign`, `ovst_seq`, `doctor_cert`, `ptnote`, `patient_condition`, `patient_doctor_note` |
+| Allergy | `opd_allergy` |
+| IPD Doctor/Nurse | `ipd_doctor_order`, `ipd_nurse_note` |
+
+> **Note**: Some tables have blacklisted fields (e.g., `patient.cid` and `person.cid` are not returned in responses).
+
+#### GET - Read Records
+
+**List records**:
+```
+GET /api/rest/{table_name}?{query_params}
+Authorization: Bearer {session_token}
+```
+
+**Get single record**:
+```
+GET /api/rest/{table_name}/{resource_id}
+Authorization: Bearer {session_token}
+```
+
+The `resource_id` maps to the table's REST ID field (e.g., `hn` for patient, `vn` for ovst, `an` for ipt).
+
+##### Query Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `select` | Fields to return and expand (join) directives | `select=hn,fname,lname,patient(pname)` |
+| `limit` | Max records to return (capped by table config) | `limit=50` |
+| `offset` | Skip N records (for pagination) | `offset=100` |
+| `order` | Sort order (`.desc` / `.asc` suffix) | `order=vstdate.desc` |
+| `{field}` | Filter by field value (see Filter Operators) | `hn=eq.HN0001` |
+
+##### Filter Operators
+
+Filters use the format `{field}={operator}.{value}`:
+
+| Operator | SQL Equivalent | Example |
+|----------|---------------|---------|
+| `eq` | `=` | `hn=eq.HN0001` |
+| `neq` | `<>` | `sex=neq.1` |
+| `gt` | `>` | `vstdate=gt.2024-01-01` |
+| `gte` | `>=` | `vstdate=gte.2024-01-01` |
+| `lt` | `<` | `vstdate=lt.2024-12-31` |
+| `lte` | `<=` | `vstdate=lte.2024-12-31` |
+| `like` | `LIKE` | `fname=like.%John%` |
+| `in` | `IN` | `pttype=in.(01,02,03)` |
+| `is` | `IS NULL / IS NOT NULL` | `birthday=is.null` or `birthday=is.notnull` |
+
+Multiple filters are combined with AND.
+
+##### Expand (Join) Syntax
+
+The `select` parameter supports automatic table joins via configured lookups:
+
+**Named expand** (specific columns):
+```
+GET /api/rest/ovst?select=*,patient(pname,fname,lname),doctor(name)
+```
+This generates a LEFT JOIN to the `patient` table and `doctor` table, returning the specified columns with aliased names like `patient.pname`, `patient.fname`, `doctor.name`.
+
+**Expand all configured lookups**:
+```
+GET /api/rest/ovst?select=*,expand(all)
+```
+
+**Inner join** (use `!` prefix to require match):
+```
+GET /api/rest/ovst?select=*,!patient(pname,fname,lname)
+```
+
+**Custom lookup** (server-defined sub-queries):
+```
+GET /api/rest/lab_head?select=*,custom.patient_last_visit
+```
+
+##### Available Expand Lookups
+
+| Table | Alias | Joined Table | Columns |
+|-------|-------|-------------|---------|
+| `ovst` | `patient` | `patient` | `pname,fname,lname` |
+| `ovst` | `doctor` | `doctor` | `name,licenseno` |
+| `ovst` | `pttype` | `pttype` | `name` |
+| `ovst` | `spclty` | `spclty` | `name` |
+| `ovstdiag` | `icd101` | `icd101` | `name,tname` |
+| `opdscreen` | `ovst` | `ovst` | `hn,vstdate,vsttime,doctor` |
+| `ipt` | `patient` | `patient` | `pname,fname,lname` |
+| `ipt` | `doctor` | `doctor` | `name` |
+| `ipt` | `ward` | `ward` | `name` |
+| `ipt` | `spclty` | `spclty` | `name` |
+| `ipt` | `pttype` | `pttype` | `name` |
+| `iptdiag` | `icd101` | `icd101` | `name,tname` |
+| `lab_head` | `doctor` | `doctor` | `name,licenseno` |
+| `lab_head` | `ward` | `ward` | `name` |
+| `lab_head` | `patient` | `patient` | `pname,fname,lname` |
+| `lab_head` | `ovst` | `ovst` | `vstdate,vsttime,doctor` |
+| `opitemrece` | `s_drugitems` | `s_drugitems` | `name,strength,units,dosageform` |
+| `opitemrece` | `patient` | `patient` | `pname,fname,lname` |
+| `oapp` | `patient` | `patient` | `pname,fname,lname` |
+| `oapp` | `doctor` | `doctor` | `name` |
+| `oapp` | `clinic` | `clinic` | `name` |
+| `oapp` | `kskdepartment` | `kskdepartment` | `department` |
+
+> Additional lookups are available for `er_regist`, `kskdepartment`, `roomno`, `ipt_labour`, `ipt_newborn`, `dtmain`, `operation_list`, `referout`, `referin`, `clinicmember`, `person_anc`, `person_wbc`, `person_epi`, `person_women`, `person_chronic`, `rcpt_print`, `physic_main`, `physic_member`, `physic_pt_send`, `health_med_service`, `health_med_queue`, `visit_pttype`, `ipt_pttype`.
+
+##### GET Examples
+
+```bash
+# List patients (default limit 50)
+GET /api/rest/patient
+Authorization: Bearer {session_token}
+
+# Get single patient by HN
+GET /api/rest/patient/HN0001
+Authorization: Bearer {session_token}
+
+# List OPD visits with patient and doctor names, filtered by date
+GET /api/rest/ovst?select=vn,vstdate,vsttime,patient(pname,fname,lname),doctor(name)&vstdate=gte.2024-06-01&vstdate=lte.2024-06-30&order=vstdate.desc&limit=100
+Authorization: Bearer {session_token}
+
+# List lab orders with all configured lookups expanded
+GET /api/rest/lab_head?select=*,expand(all)&limit=20
+Authorization: Bearer {session_token}
+
+# Get appointments for a specific clinic
+GET /api/rest/oapp?select=*,patient(pname,fname,lname),doctor(name),clinic(name)&nextdate=gte.2024-06-01&limit=50
+Authorization: Bearer {session_token}
+```
+
+##### GET Response Format
+
+**List response**:
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "RequestTime": "2025-10-20T12:00:00.000Z",
+  "data": [
+    { "vn": "660100001", "vstdate": "2024-06-01", "patient.fname": "John", "doctor.name": "Dr. Smith" },
+    { "vn": "660100002", "vstdate": "2024-06-01", "patient.fname": "Jane", "doctor.name": "Dr. Lee" }
+  ],
+  "field": [6, 4, 6, 6],
+  "field_name": ["vn", "vstdate", "patient.fname", "doctor.name"],
+  "record_count": 2,
+  "limit": 100,
+  "offset": 0
+}
+```
+
+**Single record response**:
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "RequestTime": "2025-10-20T12:00:00.000Z",
+  "data": { "hn": "HN0001", "pname": "Mr.", "fname": "John", "lname": "Doe" },
+  "field": [6, 6, 6, 6],
+  "field_name": ["hn", "pname", "fname", "lname"]
+}
+```
+
+**Record not found**:
+```json
+{
+  "MessageCode": 404,
+  "Message": "Record not found",
+  "RequestTime": "2025-10-20T12:00:00.000Z"
+}
+```
+
+#### POST - Create Records
+
+> **Requires marketplace token with READWRITE grant for the target table.**
+
+**Single insert**:
+```bash
+POST /api/rest/{table_name}
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "field1": "value1",
+  "field2": "value2"
+}
+```
+
+**Bulk insert**:
+```bash
+POST /api/rest/{table_name}/bulk
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+[
+  { "field1": "value1", "field2": "value2" },
+  { "field1": "value3", "field2": "value4" }
+]
+```
+
+**Response**:
+```json
+{
+  "MessageCode": 201,
+  "Message": "Created",
+  "RequestTime": "2025-10-20T12:00:00.000Z",
+  "insert_count": 1
+}
+```
+
+**Data type handling**:
+- **Date fields**: Use ISO format `"2024-06-15"` (YYYY-MM-DD)
+- **DateTime fields**: Use ISO format `"2024-06-15T14:30:00"` (YYYY-MM-DDTHH:mm:ss)
+- **Time fields**: Use `"14:30:00"` (HH:mm:ss)
+- **Blob fields**: Use Base64-encoded string
+
+#### PUT - Update Records
+
+> **Requires marketplace token with READWRITE grant for the target table.**
+
+**Single update**:
+```bash
+PUT /api/rest/{table_name}/{resource_id}
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "field1": "new_value1",
+  "field2": "new_value2"
+}
+```
+
+**Bulk update** (each row must include the REST ID field):
+```bash
+PUT /api/rest/{table_name}/bulk
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+[
+  { "hn": "HN0001", "fname": "Updated Name" },
+  { "hn": "HN0002", "fname": "Another Name" }
+]
+```
+
+**Response**:
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "RequestTime": "2025-10-20T12:00:00.000Z",
+  "update_count": 1
+}
+```
+
+#### DELETE - Delete Records
+
+> **Requires marketplace token with READWRITE grant for the target table.**
+
+```bash
+DELETE /api/rest/{table_name}/{resource_id}
+Authorization: Bearer {session_token}
+```
+
+**Response**:
+```json
+{
+  "MessageCode": 200,
+  "Message": "Deleted",
+  "RequestTime": "2025-10-20T12:00:00.000Z"
+}
+```
+
+#### Marketplace Token Usage
+
+The marketplace token provides table-level access control for add-on applications. Pass it as a query parameter or in the JSON body:
+
+```bash
+# Via query parameter
+GET /api/rest/lab_head?marketplace-token=mkt_xxxxx&limit=10
+Authorization: Bearer {session_token}
+
+# Via JSON body (POST/PUT)
+POST /api/rest/lab_order
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "marketplace-token": "mkt_xxxxx",
+  "lab_order_number": "LAB001",
+  "lab_items_code": "CBC"
+}
+```
+
+The server validates the marketplace token against the BMS Marketplace API (`hosxp-marketplace.bmscloud.in.th`) and caches the granted table permissions for the session. Each token specifies which tables can be accessed with READONLY or READWRITE permission.
+
+#### REST API Error Responses
+
+| MessageCode | Meaning | Example Cause |
+|-------------|---------|---------------|
+| 400 | Bad Request | Invalid JSON body, missing resource ID |
+| 403 | Forbidden | Write without marketplace token, table not in grant |
+| 404 | Not Found | Table not available, record not found |
+| 405 | Method Not Allowed | Unsupported HTTP method |
+| 500 | Server Error | Database error, internal error |
+
+---
+
 ## Field Type Codes
 
 ```
@@ -234,6 +596,270 @@ POST /api/sql
 7 = Blob/Binary Data (Base64 encoded)
 9 = String
 ```
+
+---
+
+### `/api/function` - Server Functions Endpoint
+
+**Purpose**: Execute built-in server-side functions that require database access but don't fit the SQL or REST patterns. Functions run inside the server process with direct database connection.
+
+**Method**: POST only
+
+**URL Pattern**: `/api/function?name={function_name}`
+
+**Authentication**: Bearer token (same JWT session token as `/api/sql`)
+
+**Request Format**:
+```
+POST {bms_url}/api/function?name={function_name}
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{...function-specific payload}
+```
+
+**Response Format**:
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "Value": <function-specific return value>
+}
+```
+
+**Error Response** (missing or invalid parameters):
+```json
+{
+  "MessageCode": 500,
+  "Message": "Invalid Key data for {function_name} {missing_key}"
+}
+```
+
+---
+
+#### `get_serialnumber` — Generate Unique Integer Primary Key
+
+**Purpose**: Generate a globally unique integer ID for use as a primary key. The server calls the database function `get_serialnumber(serial_name)` and verifies the returned value does not already exist in the specified table/field. This is the standard HOSxP pattern for PK generation — tables do NOT use `AUTO_INCREMENT`.
+
+**Required Keys**: `serial_name`, `table_name`, `field_name`
+
+**Request**:
+```bash
+POST {bms_url}/api/function?name=get_serialnumber
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "serial_name": "refill_order_id",
+  "table_name": "refill_order",
+  "field_name": "order_id"
+}
+```
+
+**Parameters**:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `serial_name` | string | The serial name registered in the `serialnumber` table (e.g., `vn`, `ovst_diag_id`, `refill_order_id`) |
+| `table_name` | string | The table to check for existence (e.g., `ovst`, `ovstdiag`, `refill_order`) |
+| `field_name` | string | The primary key column to check against (e.g., `vn`, `ovst_diag_id`, `order_id`) |
+
+**Response** (success):
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "Value": 1234567
+}
+```
+
+`Value` is a unique integer guaranteed not to exist in `table_name.field_name`.
+
+**Server-Side Logic** (from `GetSerialNumberChkExistDBC`):
+```
+1. Call database function: SELECT get_serialnumber('{serial_name}') AS cc
+2. Check: SELECT COUNT(*) FROM {table_name} WHERE {field_name} = {result}
+3. If result already exists → retry from step 1
+4. Return the unique integer
+```
+
+**Common Serial Names**:
+
+| serial_name | table_name | field_name | Usage |
+|-------------|-----------|------------|-------|
+| `vn` | `ovst` | `vn` | OPD visit number |
+| `an` | `ipt` | `an` | IPD admission number |
+| `ovst_diag_id` | `ovstdiag` | `ovst_diag_id` | OPD diagnosis record |
+| `opitemrece_id` | `opitemrece` | `opitemrece_id` | Prescription item |
+| `opi_dispense_id` | `opi_dispense` | `opi_dispense_id` | Dispense record |
+| `refill_order_id` | `refill_order` | `order_id` | Refill order |
+| `refill_schedule_id` | `refill_schedule` | `schedule_id` | Refill schedule |
+
+**Usage Notes**:
+- Always call this API immediately before INSERT — do not pre-generate IDs
+- The returned integer may be larger than `MAX_INT` (2,147,483,647) for high-volume serials — use `BIGINT` or handle large numbers
+- If `table_name` or `field_name` is omitted, the server derives them from `serial_name` (strips last 3 chars for table, uses serial_name as field). Explicitly providing all 3 is recommended.
+- The serial name must be registered in the database's `serialnumber` table
+
+**JavaScript Example**:
+```typescript
+async function getSerialNumber(
+  apiUrl: string, bearerToken: string,
+  serialName: string, tableName: string, fieldName: string
+): Promise<number> {
+  const response = await fetch(`${apiUrl}/api/function?name=get_serialnumber`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${bearerToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      serial_name: serialName,
+      table_name: tableName,
+      field_name: fieldName,
+    }),
+  })
+  const data = await response.json()
+  if (data.MessageCode !== 200) throw new Error(data.Message)
+  return data.Value
+}
+
+// Usage
+const orderId = await getSerialNumber(apiUrl, token,
+  'refill_order_id', 'refill_order', 'order_id')
+// orderId = 1234567 (unique integer, safe to INSERT)
+```
+
+---
+
+#### `get_hosvariable` — Read Hospital System Variable
+
+**Purpose**: Read a system-level configuration variable from the `sys_var` table. These variables control hospital-wide settings like hospital name, province code, feature flags, etc.
+
+**Required Keys**: `variable_name`
+
+**Request**:
+```bash
+POST {bms_url}/api/function?name=get_hosvariable
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "variable_name": "HOSPITAL_NAME"
+}
+```
+
+**Response** (success):
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "Value": "โรงพยาบาลตัวอย่าง"
+}
+```
+
+`Value` is the string value of the variable from `sys_var.sys_value`.
+
+**Server-Side Logic** (from `GetHOSVariable_Impl`):
+```
+1. Query: SELECT sys_value FROM sys_var WHERE sys_name = '{variable_name}'
+2. If variable exists → return sys_value
+3. If variable doesn't exist → auto-create with empty value, return ''
+```
+
+**Common Hospital Variables**:
+
+| Variable Name | Description | Example Value |
+|---------------|-------------|---------------|
+| `HOSPITAL_NAME` | Hospital name | `โรงพยาบาลตัวอย่าง` |
+| `HOSPITAL_PROVINCE` | Province name | `กรุงเทพมหานคร` |
+| `HOSCODE` | 5-digit hospital code (MOPH) | `10001` |
+| `HOSPCODE` | 9-digit hospital code | `000010001` |
+| `DB_VERSION` | HOSxP database version | `4.20240101` |
+| `MAX_OPD_QUE` | Max OPD queue number | `999` |
+
+**JavaScript Example**:
+```typescript
+async function getHosVariable(
+  apiUrl: string, bearerToken: string, variableName: string
+): Promise<string> {
+  const response = await fetch(`${apiUrl}/api/function?name=get_hosvariable`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${bearerToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ variable_name: variableName }),
+  })
+  const data = await response.json()
+  if (data.MessageCode !== 200) throw new Error(data.Message)
+  return String(data.Value)
+}
+
+// Usage
+const hospitalName = await getHosVariable(apiUrl, token, 'HOSPITAL_NAME')
+// hospitalName = "โรงพยาบาลตัวอย่าง"
+```
+
+---
+
+#### `get_cds_xml` — Execute SQL and Return XML (Restricted)
+
+**Purpose**: Execute a SQL query and return results as XML-formatted dataset. This function is restricted — it requires a valid `sql_key` which is an MD5 hash of the SQL + a secret salt. Intended for internal system use only (e.g., report generation, data export).
+
+**Required Keys**: `sql`, `sql_key`
+
+**Request**:
+```bash
+POST {bms_url}/api/function?name=get_cds_xml
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "sql": "SELECT * FROM patient WHERE hn = '000001'",
+  "sql_key": "a1b2c3d4e5f6..."
+}
+```
+
+**Parameters**:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `sql` | string | SQL query to execute |
+| `sql_key` | string | MD5 hash of `sql + secret_salt` for validation |
+
+**Response** (success):
+```json
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "xmldata": "<DATAPACKET>...</DATAPACKET>"
+}
+```
+
+**Note**: The `sql_key` validation prevents arbitrary SQL execution. The secret salt is not public — this function is for authorized internal tools only. For general SQL queries, use `/api/sql` instead.
+
+---
+
+#### Function Error Handling
+
+All functions return the same error structure:
+
+| MessageCode | Meaning | Cause |
+|-------------|---------|-------|
+| 200 | Success | Function executed successfully |
+| 500 | Invalid Key | Missing required payload keys or invalid sql_key |
+| 409 | Server Error | Unhandled exception during function execution |
+
+**Missing key error example**:
+```json
+{
+  "MessageCode": 500,
+  "Message": "Invalid Key data for get_serialnumber table_name"
+}
+```
+
+The `Message` field includes the function name and the name of the missing key, making it easy to diagnose.
 
 ---
 
@@ -678,18 +1304,30 @@ function MyComponent() {
   - Only SELECT, DESCRIBE, EXPLAIN, SHOW, WITH statements allowed
   - Other SQL statements return 403 Forbidden error
 
-### Authorization Level: Read-Only Access
+### Authorization Levels
 
-> **Note**: This specification covers read-only access. Write operations require additional authentication that is not documented here.
+#### Level 1: Read-Only Access (JWT Session Only)
 
-- **Endpoint**: `/api/sql`
+- **Endpoints**: `/api/sql` (GET/POST), `/api/rest/{table}` (GET only)
 - **Requirements**:
   - Valid session ID
   - Bearer token authentication (`bms_session_code`)
 - **Permissions**:
-  - Execute SELECT queries
+  - Execute SELECT queries via `/api/sql`
+  - Read records via `/api/rest` (GET)
   - Use DESCRIBE, EXPLAIN, SHOW statements
   - Read all accessible tables (except blacklisted)
+
+#### Level 2: Read/Write Access (JWT + Marketplace Token)
+
+- **Endpoints**: `/api/rest/{table}` (GET, POST, PUT, DELETE)
+- **Requirements**:
+  - Valid session ID + Bearer token
+  - Valid marketplace token with table grants
+- **Permissions**:
+  - READONLY grant: GET access to granted tables
+  - READWRITE grant: GET, POST, PUT, DELETE access to granted tables
+- **How to obtain**: Marketplace tokens are issued through the BMS Marketplace platform (`hosxp-marketplace.bmscloud.in.th`) when registering an add-on application
 
 ## Error Handling
 
@@ -982,6 +1620,143 @@ Response:
 }
 ```
 
+### Example 5: REST API - List OPD Visits with Joins
+```bash
+GET /api/rest/ovst?select=vn,vstdate,vsttime,patient(pname,fname,lname),doctor(name)&vstdate=eq.2024-06-15&order=vsttime.desc&limit=20
+Authorization: Bearer {session_token}
+
+Response:
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "RequestTime": "2025-10-20T12:00:00.000Z",
+  "data": [
+    {
+      "vn": "660615001",
+      "vstdate": "2024-06-15",
+      "vsttime": "16:30:00",
+      "patient.pname": "Mr.",
+      "patient.fname": "John",
+      "patient.lname": "Doe",
+      "doctor.name": "Dr. Smith"
+    }
+  ],
+  "field": [6, 4, 5, 6, 6, 6, 6],
+  "field_name": ["vn", "vstdate", "vsttime", "patient.pname", "patient.fname", "patient.lname", "doctor.name"],
+  "record_count": 1,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+### Example 6: REST API - Get Single Patient
+```bash
+GET /api/rest/patient/HN0001
+Authorization: Bearer {session_token}
+
+Response:
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "RequestTime": "2025-10-20T12:00:00.000Z",
+  "data": {
+    "hos_guid": "{GUID}",
+    "hn": "HN0001",
+    "pname": "Mr.",
+    "fname": "John",
+    "lname": "Doe",
+    "sex": "1",
+    "birthday": "1990-05-15"
+  },
+  "field": [6, 6, 6, 6, 6, 6, 4],
+  "field_name": ["hos_guid", "hn", "pname", "fname", "lname", "sex", "birthday"]
+}
+```
+
+### Example 7: REST API - Unavailable Table (Error)
+```bash
+GET /api/rest/opduser
+Authorization: Bearer {session_token}
+
+Response:
+{
+  "MessageCode": 404,
+  "Message": "Table not available: opduser",
+  "RequestTime": "2025-10-20T12:00:00.000Z"
+}
+```
+
+### Example 8: REST API - Write Without Marketplace Token (Error)
+```bash
+POST /api/rest/oapp
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{ "hn": "HN0001", "nextdate": "2024-07-01", "doctor": "001" }
+
+Response:
+{
+  "MessageCode": 403,
+  "Message": "Write operations require a marketplace token",
+  "RequestTime": "2025-10-20T12:00:00.000Z"
+}
+```
+
+### Example 9: Function API - Generate Serial Number
+```bash
+POST /api/function?name=get_serialnumber
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "serial_name": "refill_order_id",
+  "table_name": "refill_order",
+  "field_name": "order_id"
+}
+
+Response:
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "Value": 1234567
+}
+```
+
+### Example 10: Function API - Read Hospital Variable
+```bash
+POST /api/function?name=get_hosvariable
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "variable_name": "HOSPITAL_NAME"
+}
+
+Response:
+{
+  "MessageCode": 200,
+  "Message": "OK",
+  "Value": "โรงพยาบาลตัวอย่าง"
+}
+```
+
+### Example 11: Function API - Missing Key (Error)
+```bash
+POST /api/function?name=get_serialnumber
+Authorization: Bearer {session_token}
+Content-Type: application/json
+
+{
+  "serial_name": "refill_order_id"
+}
+
+Response:
+{
+  "MessageCode": 500,
+  "Message": "Invalid Key data for get_serialnumber table_name"
+}
+```
+
 ## Testing
 
 ### Connection Test Query
@@ -1041,6 +1816,15 @@ ORDER BY patient_count DESC
    - Check session is valid and not expired
 
 ## Version History
+
+- **v3.0.0** (Developer Edition):
+  - Added `/api/rest` RESTful CRUD endpoint documentation
+  - 110 tables available with config-driven access control
+  - Expand/join syntax for automatic table lookups
+  - Filter operators (eq, neq, gt, gte, lt, lte, like, in, is)
+  - Marketplace token integration for table-level ACL
+  - Bulk insert and bulk update support
+  - Endpoint overview table
 
 - **v2.0.0** (Developer Edition):
   - Documentation for read-only operations
@@ -1239,4 +2023,4 @@ DESCRIBE patient
 
 ---
 
-> **Remember**: This specification is designed for building read-only dashboards and statistical displays. For write operations or access to sensitive data, please refer to the full BMS Session Specification document and consult with your system administrator for proper authorization.
+> **Remember**: The `/api/sql` endpoint is designed for building read-only dashboards and statistical displays. The `/api/rest` endpoint supports full CRUD operations but requires a marketplace token with appropriate table grants for write access. For access to sensitive data or advanced write operations, please consult with your system administrator for proper authorization.
