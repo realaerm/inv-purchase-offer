@@ -16,6 +16,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@server': path.resolve(__dirname, './server/src'),
     },
   },
   test: {
@@ -31,8 +32,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/main.tsx', 'src/vite-env.d.ts', 'src/components/ui/**'],
+      include: ['src/**/*.{ts,tsx}', 'server/src/**/*.ts'],
+      exclude: [
+        'src/main.tsx',
+        'src/vite-env.d.ts',
+        'src/components/ui/**',
+        'server/src/index.ts',
+      ],
       thresholds: {
         statements: 80,
         branches: 80,

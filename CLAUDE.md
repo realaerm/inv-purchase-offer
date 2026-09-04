@@ -4,89 +4,140 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BMS Session Demo Dashboard — a React/TypeScript web application that displays hospital statistics and patient data from HOSxP hospital management systems. The app uses BMS Session IDs for authentication and executes read-only SQL queries against hospital databases (MySQL, MariaDB, PostgreSQL).
+**ระบบจัดทำใบเสนอซื้อยาและเวชภัณฑ์ (Purchase Offer)** — a pharmacy-inventory
+module for HOSxP XE hospitals. Staff pull items that have hit their reorder
+point, build a purchase-offer document, print it, and push the approved lines
+back into HOSxP as a purchase requisition (PR).
 
-## Key Documentation
+UI text is Thai throughout. Dates display as Buddhist era `dd/mm/yyyy` but are
+stored as Gregorian `DATE`.
 
-- `docs/BMS-SESSION-FOR-DEV.md` — Complete BMS Session API specification (v2.0): session flow, `/api/sql` endpoint, field type codes, database compatibility, HOSxP table reference, example queries
-- `.specify/memory/constitution.md` — Project constitution (v1.0.0): 9 mandatory development principles
+## Two databases, two access paths
 
-## Architecture
+This is the single most important thing to understand before changing code.
 
-### Session Flow
+| | HOSxP main | Inventory |
+|---|---|---|
+| Engine | MySQL / MariaDB (tis620) | **PostgreSQL** (UTF-8) |
+| Server | hospital's HOSxP server | **separate server** |
+| Reached via | BMS Session API over HTTP | `pg` pool, direct TCP |
+| Access | **read-only** | read + write |
+| Used for | login, user identity, `sys_var` | everything else |
 
-1. User arrives with `?bms-session-id=GUID` in URL (or from cookie/manual input)
-2. App calls `https://hosxp.net/phapi/PasteJSON?Action=GET&code=SESSION_ID` to retrieve session data
-3. Session response provides: `bms_url` (API endpoint), `bms_session_code` (JWT Bearer token), user info, database info
-4. All queries go to `{bms_url}/api/sql` with Bearer token auth
-5. Only SELECT, DESCRIBE, EXPLAIN, SHOW, WITH statements allowed (read-only)
+### Why the Express backend exists
 
-### Planned Source Structure
+The BMS Session API cannot write:
+
+- `/api/sql` accepts only `SELECT`, `DESCRIBE`, `EXPLAIN`, `SHOW`, `WITH`
+- `/api/rest` can write, but only to 110 whitelisted tables — **no `stock_*`**
+- `/api/function` has exactly three functions, **all read-only**:
+  `get_serialnumber`, `get_hosvariable`, `get_cds_xml`. There is no
+  `set_hosvariable`.
+- `sys_var`, `opduser`, `opdconfig`, `user_var`, `user_jwt` are blacklisted
+  on `/api/sql` — `get_hosvariable` is the only way to read `sys_var`.
+
+Module 4 must INSERT `stock_request` + `stock_request_list` and update this
+module's own tables in one transaction, so it talks to PostgreSQL directly.
+
+## Connection config resolution
+
+`server/src/services/inventoryConfig.ts` resolves the inventory connection in
+this order and stops at the first hit:
+
+1. `INV_DB_*` environment variables
+2. Encrypted file written by the setup screen (`server/.config/`, AES-256-GCM)
+3. `sys_var.INV_PURCHASE_OFFER_DB` — a `postgresql://` URI, usable as-is
+4. `sys_var.SEPARATE_INVENTORY_DATABASE` — HOSxP's own setting, **prefill only**
+
+Source 4 is prefill-only because HOSxP stores it as
+`Host:DB:User:EncryptedPassword:DBType:Port` and encrypts the password with a
+private key that is not published. Parse it with `parseHosxpHostConfig()`;
+never try to use its password.
+
+The app must boot and serve `/api/setup/*` even when nothing is configured —
+that is how an operator configures it in the first place. Never make config
+resolution throw.
+
+## Database rules (non-negotiable)
+
+1. **Never `ALTER` or `DROP` a HOSxP table.**
+2. HOSxP tables are read-only, except `stock_request` and `stock_request_list`,
+   which accept **INSERT only**.
+3. This module's own data lives in new tables on the PostgreSQL inventory
+   server, next to `stock_*`, so transactions can span both.
+4. Multi-statement writes go through `withTransaction()` — commit or rollback,
+   never a partial write.
+5. Every query is parameterised (`$1, $2, ...`). No string-concatenated SQL.
+6. HOSxP tables have no `AUTO_INCREMENT`. Get PKs from `get_serialnumber`
+   immediately before INSERT — never pre-allocate.
+
+## Key HOSxP inventory tables
+
+| Purpose | Tables |
+|---|---|
+| Item master | `stock_item`, `stock_item_unit`, `stock_item_drugitems` |
+| Usage trend | `stock_item_trend` (`mo1_qty`..`mo12_qty`, `forcast_month`) |
+| Sub-store rate | `stock_item_mrp` (`department_id`, `item_id`, `rate_month_qty`) — this is "Rate ห้องยา" |
+| Requisition (PR) | `stock_request`, `stock_request_list` |
+| Purchase order | `stock_po`, `stock_po_detail` |
+| Warehouses | `stock_warehouse`, `stock_department` |
+| Vendors / budget | `stock_vendor`, `stock_supplier`, `stock_budget`, `stock_project` |
+| Drug master | `drugitems` (`drugaccount` → ED/NED), `nondrugitems` |
+
+Column lists in the spec are from the knowledge base, not from the hospital's
+actual database. Run `npm run db:introspect` and check `docs/SCHEMA-REPORT.md`
+before relying on any column. **If a column is missing, say so — do not guess.**
+
+## Commands
+
+```bash
+npm run dev            # web :5173 + api :5174
+npm run db:introspect  # step 1 — write docs/SCHEMA-REPORT.md
+npm test               # all four test layers
+npm run typecheck      # tsc -b (web + server)
+npm run lint
+```
+
+## Layout
 
 ```
-src/
-├── services/bmsSession.ts       # Core: retrieveBmsSession(), executeSqlViaApi(), extractConnectionConfig()
-├── hooks/useBmsSession.ts       # useBmsSession() hook, useQuery() hook
-├── contexts/BmsSessionContext.tsx  # BmsSessionProvider, useBmsSessionContext()
-├── utils/sessionStorage.ts      # Cookie CRUD, URL param extraction
-├── components/                  # Reusable UI components
-├── pages/                       # Page-level components
-└── types/                       # TypeScript interfaces
-
-tests/
-├── unit/          # Service and utility function tests
-├── component/     # React component tests (React Testing Library)
-├── integration/   # Cross-module flow tests
-└── api/           # BMS Session API contract tests
+server/src/
+  app.ts              Express factory (createApp)
+  index.ts            entry point, boots even when unconfigured
+  db/inventoryDb.ts   pool, query(), withTransaction(), probeConnection()
+  lib/http.ts         log(), HttpError, asyncRoute(), errorHandler
+  routes/setup.ts     /api/setup/{status,discover,test,save}
+  services/           bmsFunctions, hostConfigCodec, inventoryConfig, configStore
+server/scripts/       introspect.ts
+src/                  React SPA — BMS session, shadcn/ui, Tailwind v4
+tests/                unit / component / integration / api
 ```
 
-### Key Architectural Rules
+Path aliases: `@/*` → `src/*`, `@server/*` → `server/src/*`.
+Server code runs under `tsx --tsconfig server/tsconfig.json`.
 
-- **Business logic in services only** — components handle rendering and interaction, delegate everything else to `src/services/`
-- **Session management centralized** in `bmsSession.ts`, exposed via context/hooks
-- **SQL queries MUST use parameterized inputs** (`:param_name` syntax) to prevent injection
-- **No hardcoded values** — API URLs, config, and query parameters must be dynamic (retrieved from session response)
+## Conventions
 
-## BMS Session API Quick Reference
+- Business logic lives in services; routes validate input and delegate.
+- Validate request bodies with zod; return per-field errors at 400.
+- Error messages shown to users are Thai and actionable.
+- Never log or return a database password — use `redact()`.
+- `erasableSyntaxOnly` is on: no TypeScript parameter properties, no enums.
 
-**Session retrieval**: GET `https://hosxp.net/phapi/PasteJSON?Action=GET&code={sessionId}`
+## Development standards
 
-**SQL execution**: POST `{bms_url}/api/sql` with `Authorization: Bearer {bms_session_code}`
-```json
-{"sql": "SELECT COUNT(*) as total FROM patient", "app": "BMS.Dashboard.React"}
-```
+See `.specify/memory/constitution.md` (v1.0.0) for the nine mandatory
+principles. In short: TDD is non-negotiable, four test layers with 80% coverage,
+TypeScript strict, business logic in services, commit after every meaningful
+change, and every operation needs a loading state and an actionable error.
 
-**Response shape**: `{ MessageCode, Message, data: [{...}], field: [int], field_name: [string], record_count }`
+## Speckit workflow
 
-**Field type codes**: 1=Boolean, 2=Integer, 3=Float, 4=DateTime, 5=Time, 6=String, 7=Blob, 9=String
+`/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, `/speckit.implement`,
+`/speckit.clarify`, `/speckit.analyze`
 
-**Blacklisted tables**: opduser, opdconfig, sys_var, user_var, user_jwt (max 20 tables per query)
+## Active technologies
 
-**PostgreSQL**: Use single quotes for string literals (double quotes = identifiers)
-
-## Development Standards (Constitution v1.0.0)
-
-- **TDD is non-negotiable**: write test → confirm fails → implement → confirm passes → refactor
-- **Four test layers required**: unit (80% coverage min), component, integration, API contract
-- **TypeScript strict mode** — no `any` without justification
-- **Commit after every meaningful change** with descriptive prefix (feat/fix/test/refactor/docs)
-- **Reuse over duplication** — extract shared logic into hooks, utils, shared components
-- **Informative UX** — every operation needs loading state, actionable error messages, progress for multi-step flows, guidance for empty states
-- **Performance** — API timeouts (30s session, 60s query), LIMIT clauses on SQL, lazy loading for non-critical routes
-
-## Speckit Workflow
-
-This project uses the speckit system for structured development:
-- `/speckit.specify` — Create feature specifications
-- `/speckit.plan` — Create implementation plans
-- `/speckit.tasks` — Generate task lists from plans
-- `/speckit.implement` — Execute implementation
-- `/speckit.clarify` — Clarify ambiguous requirements
-- `/speckit.analyze` — Cross-artifact consistency analysis
-
-## Active Technologies
-- TypeScript 5.x (strict mode) + React 19 + Vite 6, Recharts 3.x, shadcn/ui, Tailwind CSS v4, TanStack Table v8, date-fns (001-bms-kpi-dashboard)
-- N/A (all data from BMS Session API; session cookie stored client-side) (001-bms-kpi-dashboard)
-
-## Recent Changes
-- 001-bms-kpi-dashboard: Added TypeScript 5.x (strict mode) + React 19 + Vite 6, Recharts 3.x, shadcn/ui, Tailwind CSS v4, TanStack Table v8, date-fns
+- Frontend: React 19, TypeScript 5 strict, Vite, Tailwind v4, shadcn/ui, React Router 7
+- Backend: Node 22, Express 5, `pg` 8, zod 4, tsx
+- Testing: Vitest 4, React Testing Library, MSW

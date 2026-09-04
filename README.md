@@ -1,147 +1,141 @@
-# BMS Session ID — Blank Dashboard Template
+# ระบบจัดทำใบเสนอซื้อยาและเวชภัณฑ์ (Purchase Offer)
 
-Blank starter template for building hospital dashboards with **HOSxP** data via BMS Session API. Clone this repo, pick a dashboard template from the overview page, and let AI generate a full dashboard automatically.
+โมดูลเว็บสำหรับงานคลังยา ทำงานร่วมกับระบบ Inventory ของ **HOSxP XE** โดยตรง —
+ดึงรายการที่ถึงจุดสั่งซื้อ จัดทำใบเสนอซื้อ พิมพ์เอกสาร และสร้างใบขอซื้อ (PR) กลับเข้า HOSxP
 
-## Quick Start
+> **สถานะ:** วางโครงโปรเจกต์และชั้นเชื่อมต่อเสร็จแล้ว
+> ยังรอ credential ของฐานข้อมูลคลังเพื่อทำ **ขั้นที่ 1 — ตรวจสอบโครงสร้างตารางจริง**
+
+## สถาปัตยกรรม
+
+ระบบพาดผ่านฐานข้อมูล **2 ตัวคนละเซิร์ฟเวอร์**:
+
+```
+                ┌──────────────────────────────┐
+เบราว์เซอร์ ────▶ │ React SPA (Vite, port 5173)  │
+                └──────────────┬───────────────┘
+                               │
+        ┌──────────────────────┴───────────────────────┐
+        ▼                                              ▼
+┌───────────────────────┐                  ┌──────────────────────────┐
+│ BMS Session API       │                  │ Express API (port 5174)  │
+│ (HTTP, อ่านอย่างเดียว)  │                  │  server/src/             │
+├───────────────────────┤                  ├──────────────────────────┤
+│ • login / ตัวตนผู้ใช้   │                  │ • ทุกงานของโมดูลนี้        │
+│ • สิทธิ์ + โรงพยาบาล    │                  │ • transaction ตอนสร้าง PR │
+│ • get_hosvariable     │                  └────────────┬─────────────┘
+│   → อ่าน sys_var       │                               │ pg (pool)
+└───────────┬───────────┘                               ▼
+            ▼                              ┌──────────────────────────┐
+┌───────────────────────┐                  │ เซิร์ฟเวอร์คลัง PostgreSQL  │
+│ HOSxP MySQL/MariaDB   │                  │ stock_item, stock_request │
+│ (tis620)              │                  │ stock_po, ... + ตารางใหม่  │
+└───────────────────────┘                  └──────────────────────────┘
+```
+
+**ทำไมต้องมี Express:** BMS Session API เขียนข้อมูลไม่ได้ — `/api/sql` รับเฉพาะ
+`SELECT/DESCRIBE/EXPLAIN/SHOW/WITH` และ `/api/rest` รองรับแค่ 110 ตารางที่กำหนดไว้
+ซึ่ง**ไม่มีตาราง `stock_*` เลย** โมดูล 4 ต้อง INSERT `stock_request` +
+`stock_request_list` ใน transaction เดียว จึงต้องต่อ PostgreSQL ตรง
+
+## เริ่มใช้งาน
 
 ```bash
 npm install
-npm run dev
+cp .env.example .env     # แก้ค่าตามโรงพยาบาล (หรือเว้นว่างแล้วตั้งผ่านหน้าจอ)
+npm run dev              # web :5173 + api :5174 พร้อมกัน
 ```
 
-Open `http://localhost:5173/?bms-session-id=YOUR_SESSION_ID`
+เปิด `http://localhost:5173/?bms-session-id=YOUR_SESSION_ID`
 
-### Docker
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `npm run dev` | รัน web + api พร้อมกัน |
+| `npm run dev:web` / `npm run dev:api` | รันแยกฝั่ง |
+| `npm run db:introspect` | **ขั้นที่ 1** — ตรวจโครงสร้างตารางจริง เขียน `docs/SCHEMA-REPORT.md` |
+| `npm test` | เทสต์ทั้งหมด (unit / component / integration / api) |
+| `npm run test:coverage` | รายงาน coverage (เกณฑ์ 80%) |
+| `npm run typecheck` | `tsc -b` ทั้ง web และ server |
+| `npm run lint` | ESLint |
 
-```bash
-docker compose up -d
+## การตั้งค่าการเชื่อมต่อฐานข้อมูลคลัง
+
+เซิร์ฟเวอร์คลังเป็น PostgreSQL แยกจาก HOSxP ระบบหาค่าเชื่อมต่อตามลำดับนี้
+(เจอที่ไหนก่อนใช้ที่นั่น):
+
+| ลำดับ | แหล่ง | ใช้เชื่อมต่อได้เลย |
+|---|---|---|
+| 1 | `INV_DB_*` ใน `.env` | ✅ |
+| 2 | ไฟล์ config ที่เข้ารหัสฝั่ง server (`server/.config/`) | ✅ |
+| 3 | `sys_var.INV_PURCHASE_OFFER_DB` — DSN ของโมดูลนี้ | ✅ |
+| 4 | `sys_var.SEPARATE_INVENTORY_DATABASE` — ของ HOSxP เดิม | ⚠️ prefill เท่านั้น |
+
+**ทำไมข้อ 4 ใช้เชื่อมต่อไม่ได้:** HOSxP เก็บค่าเป็น
+`Host:DB:User:EncryptedPassword:DBType:Port` โดยช่อง password เข้ารหัสด้วยกุญแจส่วนตัวของ
+HOSxP (`EncrypTTextWithKey`) ที่ไม่เปิดเผย ระบบจึงอ่านได้แค่ host/db/user/port
+มาเติมให้ในฟอร์ม แล้วให้ผู้ดูแลกรอกรหัสผ่านเอง
+
+**ทำไมไม่บันทึกกลับ `sys_var`:** BMS Session API มีฟังก์ชันแค่ 3 ตัว
+(`get_serialnumber`, `get_hosvariable`, `get_cds_xml`) และ**อ่านอย่างเดียวทั้งหมด**
+ไม่มี `set_hosvariable` ส่วน `sys_var` ก็อยู่ใน blacklist ของ `/api/sql`
+หน้าจอตั้งค่าจึงบันทึกลงฝั่ง server แบบเข้ารหัส **AES-256-GCM** แทน
+
+> ถ้าโรงพยาบาลอยากเก็บใน `sys_var` จริง ๆ ให้ตั้งค่า `INV_PURCHASE_OFFER_DB`
+> ในโปรแกรม HOSxP ครั้งเดียวเป็นรูปแบบ
+> `postgresql://user:pass@host:5432/dbname` แล้วระบบจะอ่านมาใช้เองโดยไม่ต้องกรอกซ้ำ
+
+## API
+
+| Endpoint | ทำอะไร |
+|---|---|
+| `GET /api/health` | health check (ตอบ 200 แม้ยังไม่ตั้งค่า) |
+| `GET /api/setup/status` | สถานะการตั้งค่าปัจจุบัน (ไม่คืนรหัสผ่าน) |
+| `POST /api/setup/discover` | อ่าน `sys_var` ผ่าน BMS session มา prefill |
+| `POST /api/setup/test` | ทดสอบ credential โดยไม่บันทึก |
+| `POST /api/setup/save` | ทดสอบ → เข้ารหัส → บันทึก → เปิดใช้ทันที |
+
+## กฎเหล็กเรื่องฐานข้อมูล
+
+1. **ห้าม ALTER / DROP ตารางเดิมของ HOSxP ทุกกรณี**
+2. ตารางเดิมอ่านอย่างเดียว ยกเว้น `stock_request` / `stock_request_list` ที่ **INSERT ได้เท่านั้น**
+3. ข้อมูลใบเสนอซื้อเก็บในตารางใหม่ของโมดูลนี้ (รอเสนอ schema ในขั้นที่ 2)
+4. การเขียนหลาย statement ต้องอยู่ใน transaction เดียว — ใช้ `withTransaction()`
+5. ทุก query ใช้ parameterized (`$1, $2, ...`) ห้าม string concat
+
+## โครงสร้าง
+
+```
+server/
+  src/
+    app.ts                      Express app factory
+    index.ts                    entry point + graceful shutdown
+    db/inventoryDb.ts           pg pool, withTransaction(), probeConnection()
+    lib/http.ts                 logging, HttpError, error middleware
+    routes/setup.ts             /api/setup/*
+    services/
+      bmsFunctions.ts           get_hosvariable / get_serialnumber
+      hostConfigCodec.ts        แปลง Host:DB:User:Pass:DBType:Port ของ HOSxP
+      inventoryConfig.ts        ลำดับการหา config
+      configStore.ts            เก็บ config แบบเข้ารหัส AES-256-GCM
+  scripts/introspect.ts         ขั้นที่ 1 — ตรวจโครงสร้างตารางจริง
+src/                            React SPA (BMS session + shadcn/ui เดิม)
+tests/                          unit / component / integration / api
+docs/BMS-SESSION-FOR-DEV.md     BMS Session API v3.0
+.specify/memory/constitution.md มาตรฐานการพัฒนา 9 ข้อ
 ```
 
-Open `http://localhost:3080/?bms-session-id=YOUR_SESSION_ID`
+## ความคืบหน้าตามลำดับใน spec
 
-## How It Works
-
-1. User arrives with `?bms-session-id=GUID` in the URL
-2. App retrieves session config from `https://hosxp.net/phapi/PasteJSON`
-3. App probes local API gateway at `http://127.0.0.1:45011` — uses it if available (faster), falls back to remote tunnel
-4. Auto-detects database type (MySQL/PostgreSQL) via `SELECT VERSION()`
-5. Overview page shows 18 dashboard templates grouped by department
-6. User picks a template, edits the prompt if needed, copies it, and pastes into an AI chat to generate the dashboard
-
-### Session Input Methods
-
-| Method | Description |
-|--------|-------------|
-| URL parameter | `?bms-session-id=GUID` — saved to cookie, removed from URL |
-| Cookie | Persisted for 7 days, auto-reconnects on next visit |
-| Manual input | Login form for pasting a session ID |
-
-### Local API Detection
-
-When connecting, the app automatically checks if the HOSxP API gateway is running locally on port 45011. If reachable, all API calls use `http://127.0.0.1:45011` instead of the remote `*.tunnel.hosxp.net` endpoint. This eliminates tunnel latency for users running the gateway on the same machine.
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Framework | React 19 + TypeScript 5.x (strict mode) |
-| Build | Vite 6 |
-| UI | shadcn/ui + Tailwind CSS v4 |
-| Tables | TanStack Table v8 |
-| Charts | Recharts 3.x |
-| Testing | Vitest + React Testing Library + MSW |
-| Date | date-fns |
-| MCP | vite-plugin-mcp (dev tools for AI coding assistants) |
-
-## Dashboard Templates (21)
-
-Templates are grouped by hospital department on the overview page:
-
-| Group | Templates |
-|-------|-----------|
-| **Patient Services** | OPD, IPD, Appointments, ER, OPD Screening (Nurse), Doctor Workbench, Refer |
-| **Clinical Support** | Lab, Radiology, Pharmacy, Dental, Operating Room |
-| **Community Health (PCU)** | Population, NCD Screening, ANC/Labor (Acc.2), MCH (Acc.3), EPI/Vaccine (Acc.4), School Health (Acc.5), Family Planning (Acc.6) |
-| **Administration** | Finance/Revenue, Medical Records |
-
-Each template generates a prompt with specific KPIs, chart types, and data points based on HOSxP knowledge base.
-
-## Project Structure
-
-```
-src/
-  services/
-    bmsSession.ts        # Session retrieval, SQL execution, local API probe
-    apiQueue.ts          # Concurrency control, deduplication, retry on 429
-    queryBuilder.ts      # MySQL/PostgreSQL SQL generation
-  hooks/
-    useBmsSession.ts     # Session state management
-    useQuery.ts          # Async query lifecycle (loading/error/success)
-  contexts/
-    BmsSessionContext.tsx # Session provider, auto-connect from URL/cookie
-  components/
-    ui/                  # shadcn/ui primitives (button, card, dialog, etc.)
-    layout/              # AppHeader, AppLayout, LoadingSpinner
-    session/             # LoginForm, SessionExpired, SessionValidator
-  pages/
-    Overview.tsx         # Main page with grouped dashboard templates
-  types/
-    index.ts             # TypeScript interfaces
-  utils/
-    sessionStorage.ts    # Cookie CRUD, URL parameter handling
-    dateUtils.ts         # Date formatting helpers
-tests/
-  unit/                  # Service and utility tests
-  component/             # React component tests
-  integration/           # Cross-module flow tests
-  api/                   # BMS Session API contract tests
-```
-
-## API Request Queue
-
-All SQL queries go through `executeSqlViaApiQueued()` which provides:
-
-- **Concurrency limiting** — max 3 concurrent API calls
-- **Request deduplication** — identical concurrent queries share the same result
-- **Automatic retry** — exponential backoff on HTTP 429 (rate limit)
-- **Queue cleanup** — pending requests cancelled on disconnect
-
-## Development
-
-```bash
-npm run dev              # Start dev server (port 5173)
-npm test                 # Run all tests
-npm run test:unit        # Unit tests only
-npm run test:coverage    # Coverage report (80% threshold)
-npm run lint             # ESLint
-npm run build            # Production build
-```
-
-### MCP Dev Tools
-
-This project includes `vite-plugin-mcp` which exposes an MCP server at `http://localhost:5173/__mcp/sse` during development. AI coding assistants (Claude Code, Cursor, etc.) can connect to it for Vite config and module graph information. The `.mcp.json` file is auto-configured when the dev server starts.
-
-## BMS Session API Reference
-
-- **Session retrieval**: `GET https://hosxp.net/phapi/PasteJSON?Action=GET&code={sessionId}`
-- **SQL execution**: `POST {bms_url}/api/sql` with `Authorization: Bearer {token}`
-- **Allowed SQL**: SELECT, DESCRIBE, EXPLAIN, SHOW, WITH (read-only)
-- **Blocked tables**: opduser, opdconfig, sys_var, user_var, user_jwt (max 20 tables per query)
-
-See [docs/BMS-SESSION-FOR-DEV.md](docs/BMS-SESSION-FOR-DEV.md) for the full API specification.
-
-## Database Support
-
-The query builder auto-generates SQL for the detected database:
-
-| Function | MySQL | PostgreSQL |
-|----------|-------|------------|
-| Current date | `CURDATE()` | `CURRENT_DATE` |
-| Date format | `DATE_FORMAT(col, '%Y-%m')` | `TO_CHAR(col, 'YYYY-MM')` |
-| Date subtract | `DATE_SUB(CURDATE(), INTERVAL 30 DAY)` | `CURRENT_DATE - INTERVAL '30 days'` |
-| Age calc | `TIMESTAMPDIFF(YEAR, bday, CURDATE())` | `EXTRACT(YEAR FROM AGE(bday))` |
-| Hour extract | `HOUR(col)` | `EXTRACT(HOUR FROM col)::int` |
-| Cast to text | `CAST(col AS CHAR)` | `col::text` |
+| ขั้น | งาน | สถานะ |
+|---|---|---|
+| — | วางโครงโปรเจกต์ + ชั้นเชื่อมต่อ | ✅ เสร็จ |
+| 1 | ตรวจสอบโครงสร้างตารางจริง (`DESCRIBE`) | ⏳ รอ credential — สคริปต์พร้อมแล้ว |
+| 2 | เสนอ `CREATE TABLE` ตารางใหม่ → **หยุดรอยืนยัน** | ⏳ |
+| 3 | SQL หลัก (จุดสั่งซื้อ + Rate) → **หยุดรอยืนยัน** | ⏳ |
+| 4 | Backend API | ⏳ |
+| 5 | Frontend | ⏳ |
+| 6 | หน้าพิมพ์เอกสาร | ⏳ |
+| 7 | สร้าง PR เข้า `stock_request` / `stock_request_list` | ⏳ |
 
 ## License
 

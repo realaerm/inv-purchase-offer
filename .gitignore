@@ -30,3 +30,6 @@ coverage/
 # Temp
 *.tmp
 .vite/
+
+# Config ที่เข้ารหัสของ server (มีรหัสผ่านฐานข้อมูล ห้าม commit)
+server/.config/
