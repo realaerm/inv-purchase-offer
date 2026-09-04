@@ -36,8 +36,12 @@ export function createPool(connection: InventoryConnection): Pool {
     max: MAX_POOL_CLIENTS,
     connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
     statement_timeout: STATEMENT_TIMEOUT_MS,
-    // The inventory server is PostgreSQL and speaks UTF-8. The tis620 handling
-    // that HOSxP's MySQL server needs does not apply here.
+    // The HOSxP inventory server's PostgreSQL databases are typically created
+    // with server_encoding WIN874 (Thai, the CP874 sibling of tis620). Asking
+    // the driver for UTF8 client_encoding makes it transcode both ways, so JS
+    // sees clean UTF-8 strings. Values must still be representable in CP874:
+    // Thai and Latin text are fine, but characters outside CP874 (emoji, the
+    // '×' sign, most CJK) will be rejected by the server on write.
     client_encoding: 'UTF8',
   })
 }
