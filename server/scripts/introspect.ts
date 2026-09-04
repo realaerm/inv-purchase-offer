@@ -15,6 +15,7 @@
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import { loadEnvFile } from '@server/config/loadEnv'
 import { createPool } from '@server/db/inventoryDb'
 import { loadConnection } from '@server/services/configStore'
 import { redact, resolveInventoryConfig } from '@server/services/inventoryConfig'
@@ -110,6 +111,10 @@ function formatType(row: ColumnRow): string {
 }
 
 async function main(): Promise<void> {
+  const env = loadEnvFile()
+  if (env.error !== null) console.warn(env.error)
+  else if (env.loadedFrom !== null) console.log(`โหลดค่าจาก ${env.loadedFrom}`)
+
   const resolved = await resolveInventoryConfig({
     env: process.env,
     readStoredConnection: loadConnection,
@@ -149,6 +154,51 @@ async function main(): Promise<void> {
           AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')`,
       [tables],
     )
+
+    // How are integer PKs generated here? HOSxP's MySQL uses get_serialnumber()
+    // against a `serialnumber` table, but this PostgreSQL server has neither by
+    // default. Discover what it actually offers so step 2 can pick an ID
+    // strategy for the new tables (and for INSERTing into stock_request).
+    const { rows: sequences } = await pool.query<{ sequence_name: string }>(
+      `SELECT sequence_name FROM information_schema.sequences
+        WHERE sequence_schema = current_schema()
+        ORDER BY sequence_name`,
+    )
+
+    const { rows: functions } = await pool.query<{ routine_name: string; data_type: string }>(
+      `SELECT routine_name, data_type FROM information_schema.routines
+        WHERE routine_schema = current_schema()
+          AND (routine_name ILIKE '%serial%' OR routine_name ILIKE '%get_serial%')
+        ORDER BY routine_name`,
+    )
+
+    // PK column names do not follow one rule (stock_request -> request_id), so
+    // they are listed explicitly.
+    const PK_COLUMN: Record<string, string> = {
+      stock_request: 'request_id',
+      stock_request_list: 'request_list_id',
+      stock_po: 'stock_po_id',
+      stock_po_detail: 'stock_po_detail_id',
+    }
+
+    const idFacts: { table: string; maxId: number | null }[] = []
+    for (const [table, pkColumn] of Object.entries(PK_COLUMN)) {
+      if (!tables.includes(table)) continue
+      try {
+        const { rows } = await pool.query<{ max_id: string | null }>(
+          `SELECT MAX(${pkColumn})::text AS max_id FROM ${table}`,
+        )
+        idFacts.push({
+          table,
+          maxId:
+            rows[0]?.max_id === null || rows[0]?.max_id === undefined
+              ? null
+              : Number(rows[0].max_id),
+        })
+      } catch {
+        // PK column name did not match - recorded as unknown.
+      }
+    }
 
     const byTable = new Map<string, ColumnRow[]>()
     for (const row of columns) {
@@ -196,7 +246,23 @@ async function main(): Promise<void> {
       }
     }
 
-    lines.push('', '## รายละเอียดรายตาราง', '')
+    lines.push(
+      '',
+      '## การออกเลข Primary Key',
+      '',
+      'ตาราง `stock_request` / `stock_request_list` เป็น integer PK แบบไม่มี default',
+      '(ไม่ auto-increment) จึงต้องออกเลขเอง ส่วนนี้บอกว่าฐานนี้มีกลไกอะไรให้ใช้บ้าง',
+      '',
+      `- **Sequence ใน schema นี้:** ${sequences.length === 0 ? '_ไม่มี_' : sequences.map((s) => `\`${s.sequence_name}\``).join(', ')}`,
+      `- **ฟังก์ชันที่เกี่ยวกับ serial:** ${functions.length === 0 ? '_ไม่มี (ไม่มี get_serialnumber บนฐานนี้)_' : functions.map((f) => `\`${f.routine_name}()\``).join(', ')}`,
+      '',
+      '| ตาราง | ค่า MAX(pk) ปัจจุบัน |',
+      '|---|---|',
+      ...idFacts.map((f) => `| \`${f.table}\` | ${f.maxId === null ? '_(ว่าง)_' : f.maxId.toLocaleString()} |`),
+      '',
+      '## รายละเอียดรายตาราง',
+      '',
+    )
 
     for (const table of tables) {
       const actual = byTable.get(table)

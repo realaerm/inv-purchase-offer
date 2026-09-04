@@ -7,6 +7,7 @@
 // =============================================================================
 
 import { createApp } from '@server/app'
+import { loadEnvFile } from '@server/config/loadEnv'
 import { closeInventoryPool, setInventoryConnection } from '@server/db/inventoryDb'
 import { log } from '@server/lib/http'
 import { loadConnection } from '@server/services/configStore'
@@ -38,6 +39,10 @@ async function activateStoredConnection(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const env = loadEnvFile()
+  if (env.error !== null) log('warn', env.error)
+  else if (env.loadedFrom !== null) log('info', `โหลดค่าจาก ${env.loadedFrom}`)
+
   await activateStoredConnection()
 
   const port = Number(process.env.PORT ?? DEFAULT_PORT)
