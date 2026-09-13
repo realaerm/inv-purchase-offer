@@ -33,9 +33,11 @@ export interface ModuleConfig {
   pharmacyRateSource: PharmacyRateSource
   edTypeIdEd: number
   edTypeIdNed: number
+  /** ช่องเซ็น 4 ช่องบนหน้าพิมพ์ (เรียงซ้าย -> ขวา) */
+  signatures: SignatureBlock[]
 }
 
-const DEFAULTS: ModuleConfig = {
+const DEFAULTS: Omit<ModuleConfig, 'signatures'> = {
   offerNoPrefix: 'PO',
   suggestQtyMonths: 3,
   defaultVatPercent: 7,
@@ -48,7 +50,39 @@ const DEFAULTS: ModuleConfig = {
 }
 
 /** ชนิดค่าที่หน้าตั้งค่าต้องเรนเดอร์ และที่ฝั่ง server ใช้ตรวจ */
-export type SettingKind = 'text' | 'int' | 'intList' | 'enum'
+export type SettingKind = 'text' | 'int' | 'intList' | 'enum' | 'signature'
+
+/**
+ * ช่องเซ็นบนหน้าพิมพ์ เก็บเป็นข้อความเดียวคั่นด้วย | 4 ส่วน:
+ *   คำนำหน้าบรรทัด | คำนำหน้าชื่อ/ยศ | ตำแหน่งใต้เส้น | รูปแบบวันที่
+ * รูปแบบวันที่: blank = เว้นเส้นให้เขียน, document = วันที่ของเอกสาร, none = ไม่แสดง
+ * (ชื่อผู้เซ็นไม่เก็บ — เว้นเส้นไว้ให้เซ็นจริงบนกระดาษ)
+ */
+export const SIGNATURE_DATE_MODES = ['blank', 'document', 'none'] as const
+export type SignatureDateMode = (typeof SIGNATURE_DATE_MODES)[number]
+
+export interface SignatureBlock {
+  caption: string
+  prefix: string
+  role: string
+  dateMode: SignatureDateMode
+}
+
+const SIGNATURE_PARTS = 4
+
+/** แปลงค่าที่เก็บไว้เป็นช่องเซ็น (ค่าเสียรูปให้คืนช่องว่าง ดีกว่าทำหน้าพิมพ์พัง) */
+export function parseSignature(value: string | undefined): SignatureBlock {
+  const parts = (value ?? '').split('|')
+  const mode = (parts[3] ?? '').trim()
+  return {
+    caption: (parts[0] ?? '').trim(),
+    prefix: (parts[1] ?? '').trim(),
+    role: (parts[2] ?? '').trim(),
+    dateMode: SIGNATURE_DATE_MODES.includes(mode as SignatureDateMode)
+      ? (mode as SignatureDateMode)
+      : 'blank',
+  }
+}
 
 export interface SettingDefinition {
   key: string
@@ -105,7 +139,22 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     label: 'สิทธิ์เริ่มต้นของผู้ใช้ที่ไม่อยู่ในรายชื่อ',
     options: ['recorder', 'approver', 'viewer'],
   },
+  { key: 'print_sign1', kind: 'signature', label: 'ช่องเซ็นที่ 1 (ซ้ายสุด)' },
+  { key: 'print_sign2', kind: 'signature', label: 'ช่องเซ็นที่ 2' },
+  { key: 'print_sign3', kind: 'signature', label: 'ช่องเซ็นที่ 3' },
+  { key: 'print_sign4', kind: 'signature', label: 'ช่องเซ็นที่ 4 (ขวาสุด)' },
 ]
+
+/** ช่องเซ็น 4 ช่องตามลำดับซ้าย -> ขวาบนหน้าพิมพ์ */
+export const SIGNATURE_KEYS = ['print_sign1', 'print_sign2', 'print_sign3', 'print_sign4'] as const
+
+/** ค่าเริ่มต้นของช่องเซ็น ตามแบบฟอร์มใบรายการเสนอซื้อที่ใช้กันอยู่ */
+const SIGNATURE_DEFAULTS: Record<string, string> = {
+  print_sign1: 'อนุมัติ||หัวหน้าเจ้าหน้าที่พัสดุ|blank',
+  print_sign2: 'ผู้รับใบรายงานเสนอซื้อ||เจ้าหน้าที่พัสดุ|blank',
+  print_sign3: '||หน.คลังยา|document',
+  print_sign4: 'ลงชื่อ||เจ้าหน้าที่แผนกคลังยา|document',
+}
 
 const DEFINITION_BY_KEY = new Map(SETTING_DEFINITIONS.map((def) => [def.key, def]))
 
@@ -151,6 +200,9 @@ export async function getModuleConfig(): Promise<ModuleConfig> {
     pharmacyRateSource: phSource === 'dep_stockcard' ? 'dep_stockcard' : 'mrp',
     edTypeIdEd: toInt(map.get('ed_type_id_ed'), DEFAULTS.edTypeIdEd),
     edTypeIdNed: toInt(map.get('ed_type_id_ned'), DEFAULTS.edTypeIdNed),
+    signatures: SIGNATURE_KEYS.map((key) =>
+      parseSignature(map.get(key) ?? SIGNATURE_DEFAULTS[key]),
+    ),
   }
 }
 
@@ -202,6 +254,28 @@ export function validateSettings(entries: { key: string; value: string }[]): Set
           field: entry.key,
           message: `${def.label} ต้องเป็นรหัสตัวเลขคั่นด้วยจุลภาค (พบ "${invalid.join('", "')}")`,
         })
+      }
+      continue
+    }
+
+    if (def.kind === 'signature') {
+      const parts = value.split('|')
+      if (parts.length !== SIGNATURE_PARTS) {
+        errors.push({
+          field: entry.key,
+          message: `${def.label} ต้องมี 4 ส่วนคั่นด้วย | (คำนำหน้าบรรทัด|ยศ/คำนำหน้าชื่อ|ตำแหน่ง|รูปแบบวันที่)`,
+        })
+        continue
+      }
+      const mode = (parts[3] ?? '').trim()
+      if (!SIGNATURE_DATE_MODES.includes(mode as SignatureDateMode)) {
+        errors.push({
+          field: entry.key,
+          message: `${def.label}: รูปแบบวันที่ต้องเป็น ${SIGNATURE_DATE_MODES.join(' / ')}`,
+        })
+      }
+      if (parts.some((part) => part.trim().length > 80)) {
+        errors.push({ field: entry.key, message: `${def.label}: แต่ละส่วนต้องไม่เกิน 80 ตัวอักษร` })
       }
       continue
     }

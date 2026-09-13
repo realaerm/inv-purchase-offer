@@ -42,6 +42,7 @@ const KEY_HINT: Record<string, string> = {
   offer_no_prefix: 'ใช้ประกอบเลขที่เอกสารรูปแบบ PREFIX-ปีพ.ศ.2หลัก-เลขรันนิง 5 หลัก',
   ed_type_id_ed: 'ดูรหัสได้จากตาราง stock_item_ed_type ของโรงพยาบาล',
   ed_type_id_ned: 'ดูรหัสได้จากตาราง stock_item_ed_type ของโรงพยาบาล',
+  print_sign1: 'ช่องเซ็นบนหน้าพิมพ์ — ชื่อผู้เซ็นไม่ต้องกรอก เพราะเว้นเส้นไว้ให้เซ็นบนกระดาษ',
 }
 
 export default function ModuleSettings() {
@@ -187,7 +188,16 @@ export default function ModuleSettings() {
                 </div>
 
                 <div className="space-y-1">
-                  {definition.kind === 'enum' ? (
+                  {definition.kind === 'signature' ? (
+                    <SignatureFields
+                      label={definition.label}
+                      value={value}
+                      disabled={!canApprove}
+                      onChange={(next) =>
+                        setDraft((current) => ({ ...current, [definition.key]: next }))
+                      }
+                    />
+                  ) : definition.kind === 'enum' ? (
                     <select
                       aria-label={definition.label}
                       className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
@@ -233,6 +243,84 @@ export default function ModuleSettings() {
           <DepartmentLookup departments={departments} />
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+/** ตัวเลือกรูปแบบวันที่ใต้ช่องเซ็น */
+const DATE_MODE_LABEL: Record<string, string> = {
+  blank: 'เว้นเส้นให้เขียนวันที่เอง',
+  document: 'พิมพ์วันที่ของเอกสาร',
+  none: 'ไม่แสดงวันที่',
+}
+
+/**
+ * ช่องเซ็นเก็บเป็นข้อความเดียวคั่นด้วย | แต่ให้ผู้ใช้กรอกทีละส่วน
+ * (ถ้าให้พิมพ์ pipe เอง มีแต่จะพิมพ์ผิดแล้วหน้าพิมพ์เพี้ยน)
+ */
+function SignatureFields({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: string
+  disabled: boolean
+  onChange: (next: string) => void
+}) {
+  const parts = value.split('|')
+  const caption = parts[0] ?? ''
+  const prefix = parts[1] ?? ''
+  const role = parts[2] ?? ''
+  const dateMode = parts[3] ?? 'blank'
+
+  const emit = (next: { caption?: string; prefix?: string; role?: string; dateMode?: string }) =>
+    onChange(
+      [
+        next.caption ?? caption,
+        next.prefix ?? prefix,
+        next.role ?? role,
+        next.dateMode ?? dateMode,
+      ].join('|'),
+    )
+
+  return (
+    <div className="space-y-1.5">
+      <Input
+        aria-label={`${label}: คำนำหน้าบรรทัด`}
+        placeholder="คำนำหน้าบรรทัด เช่น อนุมัติ"
+        value={caption}
+        disabled={disabled}
+        onChange={(event) => emit({ caption: event.target.value })}
+      />
+      <Input
+        aria-label={`${label}: ยศ/คำนำหน้าชื่อ`}
+        placeholder="ยศ/คำนำหน้าชื่อ เช่น น.อ.หญิง (เว้นว่างได้)"
+        value={prefix}
+        disabled={disabled}
+        onChange={(event) => emit({ prefix: event.target.value })}
+      />
+      <Input
+        aria-label={`${label}: ตำแหน่งใต้เส้น`}
+        placeholder="ตำแหน่งใต้เส้น เช่น หัวหน้าเจ้าหน้าที่พัสดุ"
+        value={role}
+        disabled={disabled}
+        onChange={(event) => emit({ role: event.target.value })}
+      />
+      <select
+        aria-label={`${label}: รูปแบบวันที่`}
+        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
+        value={dateMode}
+        disabled={disabled}
+        onChange={(event) => emit({ dateMode: event.target.value })}
+      >
+        {Object.entries(DATE_MODE_LABEL).map(([mode, text]) => (
+          <option key={mode} value={mode}>
+            {text}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

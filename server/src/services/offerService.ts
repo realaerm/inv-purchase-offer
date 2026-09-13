@@ -18,9 +18,10 @@
 
 import { withTransaction } from '@server/db/inventoryDb'
 import { conflict, notFound } from '@server/lib/http'
+import { getRatesForItems } from '@server/repositories/reorderRepository'
 import { calcOffer, lineTotal } from '@server/services/offerCalc'
 import { formatOfferNo, nextRunningNo, toBuddhistYear } from '@server/services/offerNumber'
-import { getModuleConfig } from '@server/services/settingsService'
+import { getModuleConfig, type SignatureBlock } from '@server/services/settingsService'
 import * as repo from '@server/repositories/offerRepository'
 import type {
   AuditRow,
@@ -316,6 +317,57 @@ export async function setLineApproval(
 /** ประวัติการทำงานของใบ */
 export async function getOfferAudit(offerId: number, limit: number): Promise<AuditRow[]> {
   return repo.listAudit(null, offerId, limit)
+}
+
+
+/** หนึ่งบรรทัดบนหน้าพิมพ์ = รายการในใบ + Rate ที่คำนวณสด ณ เวลาพิมพ์ */
+export interface PrintItem extends OfferItemRow {
+  rate_warehouse: number
+  rate_pharmacy: number
+}
+
+export interface OfferPrintData {
+  header: OfferHeaderRow
+  items: PrintItem[]
+  /** ช่องเซ็นที่ตั้งไว้ในหน้าตั้งค่า (ชื่อเว้นไว้ให้เซ็นบนกระดาษ) */
+  signatures: SignatureBlock[]
+  /** ค่าที่ใช้คำนวณ Rate — พิมพ์กำกับไว้เพื่อให้ตัวเลขบนกระดาษอธิบายตัวเองได้ */
+  rateMonths: number
+}
+
+/**
+ * ข้อมูลสำหรับหน้าพิมพ์ (โมดูล 3)
+ *
+ * Rate คลัง/Rate ห้องยา ไม่ได้เก็บไว้ในใบ จึงคำนวณสดเฉพาะรายการในใบนี้ตอนพิมพ์
+ * (ตกลงกันไว้ตั้งแต่ขั้นที่ 2 ว่าค่าสถานะพัสดุทั้งหมดดึงสด ไม่เก็บ snapshot)
+ */
+export async function getOfferForPrint(offerId: number): Promise<OfferPrintData> {
+  const config = await getModuleConfig()
+
+  const header = await repo.getHeader(null, offerId)
+  if (header === null) throw notFound(`ไม่พบใบเสนอซื้อรหัส ${offerId}`)
+
+  const items = await repo.getItems(null, offerId, config.edTypeIdEd)
+  const rates = await getRatesForItems({
+    warehouseId: header.warehouse_id,
+    rateMonths: config.defaultRateMonths,
+    pharmacyDepartmentIds: config.pharmacyDepartmentIds,
+    warehouseRateSource: config.warehouseRateSource,
+    pharmacyRateSource: config.pharmacyRateSource,
+    itemIds: items.map((item) => item.item_id),
+  })
+  const rateByItem = new Map(rates.map((rate) => [rate.item_id, rate]))
+
+  return {
+    header,
+    items: items.map((item) => ({
+      ...item,
+      rate_warehouse: rateByItem.get(item.item_id)?.rate_warehouse ?? 0,
+      rate_pharmacy: rateByItem.get(item.item_id)?.rate_pharmacy ?? 0,
+    })),
+    signatures: config.signatures,
+    rateMonths: config.defaultRateMonths,
+  }
 }
 
 /** บันทึกว่ามีการพิมพ์เอกสาร (โมดูล 3 เรียกเมื่อเปิดหน้าพิมพ์) */

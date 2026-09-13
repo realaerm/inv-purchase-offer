@@ -266,3 +266,49 @@ export async function countReorderItems(params: ReorderQueryParams): Promise<num
   ])
   return rows[0]?.total ?? 0
 }
+
+// -----------------------------------------------------------------------------
+// Rate ของรายการที่ระบุ (ใช้ตอนพิมพ์ใบเสนอซื้อ — โมดูล 3)
+//
+// ใบที่บันทึกไว้เก็บแต่การตัดสินใจของผู้ใช้ ส่วน Rate เป็นค่าที่คำนวณสดเสมอ
+// ฟังก์ชันนี้จึงคิด Rate ให้เฉพาะ item ที่อยู่ในใบนั้น (ไม่กวาดทั้งคลัง)
+// -----------------------------------------------------------------------------
+
+export interface ItemRateRow {
+  item_id: number
+  rate_warehouse: number
+  rate_pharmacy: number
+}
+
+/**
+ * $1 warehouseId, $2 rateMonths, $3 pharmacyDepartmentIds (int[]), $4 itemIds (int[])
+ * ลำดับพารามิเตอร์ตรงกับ fragment ของ Rate ที่ใช้ร่วมกับ SQL หลัก
+ */
+export async function getRatesForItems(params: {
+  warehouseId: number
+  rateMonths: number
+  pharmacyDepartmentIds: number[]
+  warehouseRateSource: WarehouseRateSource
+  pharmacyRateSource: PharmacyRateSource
+  itemIds: number[]
+}): Promise<ItemRateRow[]> {
+  if (params.itemIds.length === 0) return []
+
+  const sql = `
+WITH base AS (
+  SELECT unnest($4::int[]) AS item_id
+)
+SELECT b.item_id,
+       COALESCE(wr.rate, 0.0) AS rate_warehouse,
+       COALESCE(pr.rate, 0.0) AS rate_pharmacy
+FROM base b
+${warehouseRateLateral(params.warehouseRateSource)}
+${pharmacyRateLateral(params.pharmacyRateSource)}
+`
+  return query<ItemRateRow>(sql, [
+    params.warehouseId,
+    params.rateMonths,
+    params.pharmacyDepartmentIds,
+    params.itemIds,
+  ])
+}

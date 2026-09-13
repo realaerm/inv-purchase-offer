@@ -243,6 +243,26 @@ export interface OfferDetail {
   items: OfferItem[]
 }
 
+/** ช่องเซ็นบนหน้าพิมพ์ (ชื่อผู้เซ็นเว้นไว้ให้เซ็นบนกระดาษ) */
+export interface SignatureBlock {
+  caption: string
+  prefix: string
+  role: string
+  dateMode: 'blank' | 'document' | 'none'
+}
+
+export interface PrintItem extends OfferItem {
+  rate_warehouse: number
+  rate_pharmacy: number
+}
+
+export interface OfferPrintData {
+  header: OfferHeader
+  items: PrintItem[]
+  signatures: SignatureBlock[]
+  rateMonths: number
+}
+
 export interface OfferListItem {
   po_offer_id: number
   offer_no: string
@@ -300,7 +320,7 @@ export interface SettingRow {
 
 export interface SettingDefinition {
   key: string
-  kind: 'text' | 'int' | 'intList' | 'enum'
+  kind: 'text' | 'int' | 'intList' | 'enum' | 'signature'
   label: string
   options?: string[]
   min?: number
@@ -317,6 +337,7 @@ export interface ModuleConfig {
   pharmacyRateSource: 'mrp' | 'dep_stockcard'
   edTypeIdEd: number
   edTypeIdNed: number
+  signatures: SignatureBlock[]
 }
 
 export interface SettingsResponse {

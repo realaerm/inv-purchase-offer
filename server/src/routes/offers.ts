@@ -211,6 +211,15 @@ export function offersRouter(): Router {
     }),
   )
 
+  /** ข้อมูลทั้งหมดที่หน้าพิมพ์ต้องใช้ (รวม Rate ที่คำนวณสด และช่องเซ็นที่ตั้งไว้) */
+  router.get(
+    '/:id/print',
+    requireActor,
+    asyncRoute(async (req, res) => {
+      res.json(await offerService.getOfferForPrint(offerIdOf(req)))
+    }),
+  )
+
   /** บันทึกว่ามีการพิมพ์ — ไม่เปลี่ยนสถานะใบ ใช้เพื่อ audit เท่านั้น */
   router.post(
     '/:id/print',

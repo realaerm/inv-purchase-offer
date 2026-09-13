@@ -16,6 +16,7 @@ import type {
   OfferDetail,
   OfferInput,
   OfferListQuery,
+  OfferPrintData,
   OfferListResponse,
   Option,
   ReorderItem,
@@ -303,6 +304,15 @@ export function setLineApproval(
     body: { itemIds, approved },
     actor,
   })
+}
+
+/** ข้อมูลทั้งหมดของหน้าพิมพ์ (รวม Rate ที่คำนวณสด ณ เวลาพิมพ์) */
+export function getPrintData(
+  offerId: number,
+  actor: ActorIdentity,
+  signal?: AbortSignal,
+): Promise<OfferPrintData> {
+  return request<OfferPrintData>(`/api/offers/${offerId}/print`, { actor, signal })
 }
 
 export function logPrint(offerId: number, actor: ActorIdentity): Promise<{ ok: boolean }> {

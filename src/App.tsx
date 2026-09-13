@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 const ReorderPull = lazy(() => import('@/pages/ReorderPull'))
 const OfferList = lazy(() => import('@/pages/OfferList'))
 const OfferEditor = lazy(() => import('@/pages/OfferEditor'))
+const OfferPrint = lazy(() => import('@/pages/OfferPrint'))
 const ModuleSettings = lazy(() => import('@/pages/ModuleSettings'))
 const ConnectionSetup = lazy(() => import('@/pages/ConnectionSetup'))
 
@@ -21,6 +22,7 @@ function AppRoutes() {
         <Route path="/offers" element={<OfferList />} />
         <Route path="/offers/new" element={<OfferEditor />} />
         <Route path="/offers/:id" element={<OfferEditor />} />
+        <Route path="/offers/:id/print" element={<OfferPrint />} />
         <Route path="/settings" element={<ModuleSettings />} />
         <Route path="/setup" element={<ConnectionSetup />} />
         <Route path="*" element={<Navigate to="/" replace />} />

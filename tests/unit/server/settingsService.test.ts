@@ -5,7 +5,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { SETTING_DEFINITIONS, validateSettings } from '@server/services/settingsService'
+import {
+  parseSignature,
+  SETTING_DEFINITIONS,
+  validateSettings,
+} from '@server/services/settingsService'
 
 describe('validateSettings', () => {
   it('MUST accept every key the module declares with a sane value', () => {
@@ -22,6 +26,10 @@ describe('validateSettings', () => {
       approver_logins: 'somchai,malee',
       viewer_logins: '',
       default_role: 'recorder',
+      print_sign1: 'อนุมัติ|น.อ.หญิง|หัวหน้าเจ้าหน้าที่พัสดุ|blank',
+      print_sign2: 'ผู้รับใบรายงานเสนอซื้อ||เจ้าหน้าที่พัสดุ|blank',
+      print_sign3: '||หน.คลังยา|document',
+      print_sign4: 'ลงชื่อ||เจ้าหน้าที่แผนกคลังยา|none',
     }
     const entries = SETTING_DEFINITIONS.map((def) => ({ key: def.key, value: sample[def.key] }))
 
@@ -79,5 +87,51 @@ describe('validateSettings', () => {
       'suggest_qty_months',
       'rate_pharmacy_source',
     ])
+  })
+})
+
+describe('ช่องเซ็นบนหน้าพิมพ์', () => {
+  it('MUST read the four parts of a signature block', () => {
+    expect(parseSignature('อนุมัติ|น.อ.หญิง|หัวหน้าเจ้าหน้าที่พัสดุ|blank')).toEqual({
+      caption: 'อนุมัติ',
+      prefix: 'น.อ.หญิง',
+      role: 'หัวหน้าเจ้าหน้าที่พัสดุ',
+      dateMode: 'blank',
+    })
+  })
+
+  it('MUST accept an empty caption or prefix, because the form leaves some blank', () => {
+    expect(parseSignature('||หน.คลังยา|document')).toEqual({
+      caption: '',
+      prefix: '',
+      role: 'หน.คลังยา',
+      dateMode: 'document',
+    })
+  })
+
+  it('MUST fall back to a blank date line rather than breaking the printout', () => {
+    expect(parseSignature('ลงชื่อ||เจ้าหน้าที่|ไม่รู้จัก').dateMode).toBe('blank')
+    expect(parseSignature(undefined)).toEqual({
+      caption: '',
+      prefix: '',
+      role: '',
+      dateMode: 'blank',
+    })
+  })
+
+  it('MUST reject a value that is not four parts', () => {
+    const errors = validateSettings([{ key: 'print_sign1', value: 'อนุมัติ|หัวหน้าพัสดุ' }])
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toContain('4 ส่วน')
+  })
+
+  it('MUST reject an unknown date mode, so the print page never has to guess', () => {
+    const errors = validateSettings([
+      { key: 'print_sign1', value: 'อนุมัติ||หัวหน้าพัสดุ|เมื่อไหร่ก็ได้' },
+    ])
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0].message).toContain('blank / document / none')
   })
 })

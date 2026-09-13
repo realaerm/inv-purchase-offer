@@ -86,6 +86,7 @@ function settings(): SettingsResponse {
       pharmacyRateSource: 'mrp',
       edTypeIdEd: 1,
       edTypeIdNed: 2,
+      signatures: [],
     },
     definitions: [
       { key: 'offer_no_prefix', kind: 'text', label: 'prefix ของเลขที่ใบเสนอซื้อ' },
