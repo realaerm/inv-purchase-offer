@@ -7,10 +7,13 @@ import { Link, useLocation } from 'react-router-dom';
 import { useBmsSessionContext } from '@/contexts/BmsSessionContext';
 import {
   Activity,
-  LayoutDashboard,
+  ClipboardList,
+  Cog,
   LogOut,
   Database,
   ChevronDown,
+  PackageSearch,
+  Plug,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -25,7 +28,10 @@ interface NavTab {
 }
 
 const NAV_TABS: NavTab[] = [
-  { label: 'หน้าหลัก', path: '/', icon: LayoutDashboard },
+  { label: 'จุดสั่งซื้อ', path: '/', icon: PackageSearch },
+  { label: 'ใบเสนอซื้อ', path: '/offers', icon: ClipboardList },
+  { label: 'ตั้งค่าโมดูล', path: '/settings', icon: Cog },
+  { label: 'การเชื่อมต่อ', path: '/setup', icon: Plug },
 ];
 
 // ---------------------------------------------------------------------------
