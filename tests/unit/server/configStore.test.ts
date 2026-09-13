@@ -19,7 +19,7 @@ import {
 import type { InventoryConnection } from '@server/services/inventoryConfig'
 
 const CONNECTION: InventoryConnection = {
-  host: '192.168.139.131',
+  host: '10.0.0.10',
   port: 5432,
   database: 'inventory',
   user: 'hos',

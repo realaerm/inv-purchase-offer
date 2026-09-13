@@ -216,7 +216,8 @@ async function main(): Promise<void> {
       '# รายงานโครงสร้างตารางจริง — เซิร์ฟเวอร์คลัง (PostgreSQL)',
       '',
       `สร้างเมื่อ: ${new Date().toISOString()}`,
-      `ฐานข้อมูล: \`${resolved.connection.database}\` @ \`${resolved.connection.host}:${resolved.connection.port}\``,
+      // ไม่ใส่ host/port ลงรายงาน — ไฟล์นี้ถูก commit ขึ้น repo
+      `ฐานข้อมูล: \`${resolved.connection.database}\` (เซิร์ฟเวอร์คลังของโรงพยาบาล)`,
       '',
       '> สร้างอัตโนมัติด้วย `npm run db:introspect` — ห้ามแก้ด้วยมือ',
       '',
