@@ -24,6 +24,7 @@ import { toThaiDateTime } from '@/utils/thaiFormat'
 
 /** คำอธิบายตัวเลือกของคีย์ชนิด enum ให้อ่านรู้เรื่องกว่าค่าดิบ */
 const ENUM_LABEL: Record<string, string> = {
+  '': 'ยังไม่กำหนด — เป็นผู้บันทึก (และอนุมัติได้ชั่วคราวจนกว่าจะมีรายชื่อผู้อนุมัติ)',
   wh_stockcard: 'คำนวณสดจาก stock card ของคลังใหญ่ (แนะนำ)',
   draw: 'คำนวณจากใบเบิกออกจากคลังใหญ่ (stock_draw)',
   mrp: 'ใช้ค่าที่ HOSxP คำนวณไว้ใน stock_item_mrp (เร็ว, แนะนำ)',
@@ -46,7 +47,7 @@ const KEY_HINT: Record<string, string> = {
 }
 
 export default function ModuleSettings() {
-  const { actor, canApprove } = useOfferIdentity()
+  const { actor, canApprove, bootstrapMode } = useOfferIdentity()
 
   const [data, setData] = useState<SettingsResponse | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
@@ -150,6 +151,17 @@ export default function ModuleSettings() {
           </>
         }
       />
+
+      {bootstrapMode && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">ยังไม่ได้กำหนดผู้อนุมัติ</p>
+          <p>
+            ตอนนี้ผู้ใช้ทุกคนอนุมัติใบเสนอซื้อและสร้างใบขอซื้อได้ เพราะ
+            <code className="mx-1">approver_logins</code> ยังว่าง — กรุณาใส่ชื่อผู้ใช้ BMS
+            ของผู้มีสิทธิ์อนุมัติในช่องด้านล่าง แล้วบันทึก ระบบจะปิดสิทธิ์ชั่วคราวนี้ทันที
+          </p>
+        </div>
+      )}
 
       {!canApprove && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">

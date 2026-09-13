@@ -39,7 +39,23 @@ vi.mock('@/services/setupApi', () => ({
   discoverFromHosxp: vi.fn(),
   testConnection: vi.fn(),
   saveConnection: vi.fn(),
+  runMigration: vi.fn(),
 }))
+
+/** schema ที่ครบแล้ว ใช้เป็นค่าพื้นฐานของสถานะ */
+const READY_SCHEMA = {
+  ready: true,
+  existingTables: [
+    'po_offer_audit_log',
+    'po_offer_document',
+    'po_offer_item',
+    'po_offer_migration',
+    'po_offer_setting',
+  ],
+  missingTables: [],
+  appliedMigrations: [{ filename: '001_create_po_offer_tables.sql', applied_at: '2026-09-13T10:00:00' }],
+  error: null,
+}
 
 const setupApi = await import('@/services/setupApi')
 const ConnectionSetup = (await import('@/pages/ConnectionSetup')).default
@@ -71,6 +87,7 @@ beforeEach(() => {
     connection: null,
     poolActive: false,
     warnings: [],
+    schema: { ...READY_SCHEMA, ready: false, existingTables: [], missingTables: ['po_offer_document'] },
   })
 })
 
@@ -88,6 +105,7 @@ describe('สถานะการตั้งค่า', () => {
       connection: { host: '192.168.1.10', port: 5432, database: 'inventory', user: 'hos', ssl: false },
       poolActive: true,
       warnings: ['ค่าจาก sys_var ของ HOSxP ใช้เชื่อมต่อไม่ได้'],
+      schema: READY_SCHEMA,
     })
     renderPage()
 
@@ -220,5 +238,78 @@ describe('ทดสอบและบันทึก', () => {
     await userEvent.click(screen.getByRole('button', { name: /บันทึกและเปิดใช้/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('จึงยังไม่บันทึกค่า')
+  })
+})
+
+describe('ตารางของโมดูล (ติดตั้งที่โรงพยาบาลใหม่)', () => {
+  beforeEach(() => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({
+      isConfigured: true,
+      source: 'file',
+      connection: { host: 'h', port: 5432, database: 'inventory', user: 'hos', ssl: false },
+      poolActive: true,
+      warnings: [],
+      schema: {
+        ready: false,
+        existingTables: [],
+        missingTables: ['po_offer_document', 'po_offer_item'],
+        appliedMigrations: [],
+        error: null,
+      },
+    })
+  })
+
+  it('MUST say which tables are still missing and how they get created', async () => {
+    renderPage()
+
+    expect(await screen.findByText(/ยังขาด 2 ตาราง/)).toBeInTheDocument()
+    expect(screen.getByText(/po_offer_document, po_offer_item/)).toBeInTheDocument()
+    expect(screen.getByText(/สร้างให้อัตโนมัติเมื่อบันทึกค่าเชื่อมต่อ/)).toBeInTheDocument()
+  })
+
+  it('MUST create the tables when asked, and report what it installed', async () => {
+    vi.mocked(setupApi.runMigration).mockResolvedValue({
+      applied: ['001_create_po_offer_tables.sql', '002_settings_mapping.sql'],
+      skipped: [],
+      status: { ...READY_SCHEMA },
+    })
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('button', { name: /ตรวจ\/สร้างตารางให้ครบ/ }))
+
+    expect(await screen.findByText(/สร้าง\/อัปเดตตารางแล้ว 2 ไฟล์/)).toBeInTheDocument()
+    expect(setupApi.runMigration).toHaveBeenCalled()
+    // สิทธิ์อ่านจากตารางที่เพิ่งสร้าง จึงต้องถามใหม่
+    expect(reload).toHaveBeenCalled()
+  })
+
+  it('MUST say plainly when there was nothing to install', async () => {
+    vi.mocked(setupApi.runMigration).mockResolvedValue({
+      applied: [],
+      skipped: ['001_create_po_offer_tables.sql'],
+      status: { ...READY_SCHEMA },
+    })
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('button', { name: /ตรวจ\/สร้างตารางให้ครบ/ }))
+
+    expect(await screen.findByText(/ครบอยู่แล้ว/)).toBeInTheDocument()
+  })
+
+  it('MUST surface a permission problem with the GRANT the DBA must run', async () => {
+    vi.mocked(setupApi.runMigration).mockResolvedValue({
+      applied: [],
+      skipped: [],
+      status: {
+        ...READY_SCHEMA,
+        ready: false,
+        error: 'ผู้ใช้ฐานข้อมูลไม่มีสิทธิ์สร้างตาราง — GRANT CREATE ON SCHEMA public TO hos',
+      },
+    })
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('button', { name: /ตรวจ\/สร้างตารางให้ครบ/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('GRANT CREATE ON SCHEMA public')
   })
 })

@@ -137,7 +137,8 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     key: 'default_role',
     kind: 'enum',
     label: 'สิทธิ์เริ่มต้นของผู้ใช้ที่ไม่อยู่ในรายชื่อ',
-    options: ['recorder', 'approver', 'viewer'],
+    // ค่าว่าง = ยังไม่กำหนด ซึ่งจำเป็นตอนติดตั้งใหม่ (ดู lib/auth.ts)
+    options: ['', 'recorder', 'approver', 'viewer'],
   },
   { key: 'print_sign1', kind: 'signature', label: 'ช่องเซ็นที่ 1 (ซ้ายสุด)' },
   { key: 'print_sign2', kind: 'signature', label: 'ช่องเซ็นที่ 2' },

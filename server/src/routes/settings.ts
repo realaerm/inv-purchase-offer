@@ -9,7 +9,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 
-import { getActor, requireActor, requireRole, resolveRole } from '@server/lib/auth'
+import { getActor, requireActor, requireRole, resolveRoleDetail } from '@server/lib/auth'
 import { asyncRoute, badRequest } from '@server/lib/http'
 import { parseBody } from '@server/lib/validate'
 import { insertAudit } from '@server/repositories/offerRepository'
@@ -82,10 +82,13 @@ export function meRouter(): Router {
     requireActor,
     asyncRoute(async (req, res) => {
       const actor = getActor(req)
+      const resolved = await resolveRoleDetail(actor)
       res.json({
         id: actor.id,
         name: actor.name,
-        role: await resolveRole(actor),
+        role: resolved.role,
+        // หน้าจอใช้ค่านี้ขึ้นคำเตือนให้รีบกำหนดผู้อนุมัติหลังติดตั้งใหม่
+        bootstrapMode: resolved.bootstrapMode,
       })
     }),
   )

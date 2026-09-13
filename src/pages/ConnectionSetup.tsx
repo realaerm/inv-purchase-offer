@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Download, Loader2, Plug, Save } from 'lucide-react'
+import { CheckCircle2, Database, Download, Loader2, Plug, Save } from 'lucide-react'
 
 import { ErrorNotice } from '@/components/common/ErrorNotice'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -24,6 +24,7 @@ import { useOfferIdentity } from '@/contexts/OfferIdentityContext'
 import {
   discoverFromHosxp,
   getSetupStatus,
+  runMigration,
   saveConnection,
   testConnection,
   type ConnectionInput,
@@ -56,7 +57,7 @@ export default function ConnectionSetup() {
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [busy, setBusy] = useState<'discover' | 'test' | 'save' | null>(null)
+  const [busy, setBusy] = useState<'discover' | 'test' | 'save' | 'migrate' | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
@@ -128,10 +129,14 @@ export default function ConnectionSetup() {
     setNotice(null)
     try {
       const result = await saveConnection(form)
+      const createdTables =
+        result.appliedMigrations !== undefined && result.appliedMigrations.length > 0
+          ? ` · สร้างตารางของโมดูลให้แล้ว ${result.appliedMigrations.length} ไฟล์`
+          : ''
       setNotice(
         `บันทึกและเปิดใช้การเชื่อมต่อแล้ว${
           result.serverVersion === undefined ? '' : ` (${result.serverVersion.split(' ')[1] ?? ''})`
-        } — ใช้งานโมดูลได้ทันทีโดยไม่ต้องรีสตาร์ต`,
+        }${createdTables} — ใช้งานโมดูลได้ทันทีโดยไม่ต้องรีสตาร์ต`,
       )
       setForm((current) => ({ ...current, password: '' }))
       setReloadToken((token) => token + 1)
@@ -143,6 +148,30 @@ export default function ConnectionSetup() {
       setBusy(null)
     }
   }, [form, reloadIdentity])
+
+  const migrate = useCallback(async () => {
+    setBusy('migrate')
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await runMigration()
+      if (result.status.error !== null) {
+        setError(new Error(result.status.error))
+      } else {
+        setNotice(
+          result.applied.length === 0
+            ? 'ตารางของโมดูลครบอยู่แล้ว ไม่มีอะไรต้องสร้างเพิ่ม'
+            : `สร้าง/อัปเดตตารางแล้ว ${result.applied.length} ไฟล์: ${result.applied.join(', ')}`,
+        )
+      }
+      setReloadToken((token) => token + 1)
+      reloadIdentity()
+    } catch (caught) {
+      setError(caught)
+    } finally {
+      setBusy(null)
+    }
+  }, [reloadIdentity])
 
   const canSubmit =
     form.host.trim() !== '' &&
@@ -183,6 +212,58 @@ export default function ConnectionSetup() {
                 {warning}
               </p>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {status !== null && status.isConfigured && (
+        <Card>
+          <CardContent className="space-y-2 p-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Database className="size-4" aria-hidden />
+              <span className="font-medium">ตารางของโมดูลบนเซิร์ฟเวอร์คลัง:</span>
+              {status.schema.ready ? (
+                <span className="text-emerald-700">
+                  ครบแล้ว ({status.schema.existingTables.length} ตาราง)
+                </span>
+              ) : (
+                <span className="text-amber-700">
+                  ยังขาด {status.schema.missingTables.length} ตาราง
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void migrate()}
+                disabled={busy !== null}
+              >
+                {busy === 'migrate' ? (
+                  <Loader2 className="animate-spin" aria-hidden />
+                ) : (
+                  <Database aria-hidden />
+                )}
+                ตรวจ/สร้างตารางให้ครบ
+              </Button>
+            </div>
+
+            {!status.schema.ready && (
+              <p className="text-muted-foreground">
+                ระบบจะสร้างให้อัตโนมัติเมื่อบันทึกค่าเชื่อมต่อหรือตอนเริ่มเซิร์ฟเวอร์ —
+                ถ้ายังขาดอยู่ มักเป็นเพราะผู้ใช้ฐานข้อมูลไม่มีสิทธิ์ CREATE
+                {status.schema.missingTables.length > 0 && (
+                  <> (ที่ยังขาด: {status.schema.missingTables.join(', ')})</>
+                )}
+              </p>
+            )}
+            {status.schema.error !== null && (
+              <p className="text-rose-700">{status.schema.error}</p>
+            )}
+            {status.schema.appliedMigrations.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                ไฟล์ที่ติดตั้งแล้ว:{' '}
+                {status.schema.appliedMigrations.map((row) => row.filename).join(', ')}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

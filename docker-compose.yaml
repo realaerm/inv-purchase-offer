@@ -30,6 +30,8 @@ services:
       INV_DB_PASS: ${INV_DB_PASS:-}
       INV_DB_SSL: ${INV_DB_SSL:-false}
       INV_CONFIG_KEY: ${INV_CONFIG_KEY:-}
+      # สร้างตาราง po_offer_* ให้เองเมื่อต่อฐานคลังได้ (ตั้ง false ถ้าให้ DBA รัน DDL เอง)
+      INV_AUTO_MIGRATE: ${INV_AUTO_MIGRATE:-true}
     volumes:
       - api-config:/app/server/.config
     healthcheck:

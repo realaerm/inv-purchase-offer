@@ -5,6 +5,7 @@
 import type { NextFunction, Request, Response } from 'express'
 
 import { NotConfiguredError } from '@server/db/inventoryDb'
+import { describeDbError, isExplainableDbError, statusForDbError } from '@server/lib/dbErrors'
 
 type Level = 'info' | 'warn' | 'error'
 
@@ -85,5 +86,13 @@ export function errorHandler(
     error: message,
     stack: error instanceof Error ? error.stack : undefined,
   })
+
+  // ปัญหาสิทธิ์/ตารางหาย/ตัวอักษรนอกชุดรหัส เป็นเรื่องที่ผู้ดูแลแก้ได้เอง
+  // จึงบอกให้ชัดแทนที่จะซ่อนเป็นข้อความกลาง (สำคัญมากตอนติดตั้งที่โรงพยาบาลใหม่)
+  if (isExplainableDbError(error)) {
+    res.status(statusForDbError(error)).json({ error: describeDbError(error), code: 'DB_ERROR' })
+    return
+  }
+
   res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ' })
 }

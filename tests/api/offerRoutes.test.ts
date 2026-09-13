@@ -111,8 +111,19 @@ describe('การยืนยันตัวตน', () => {
       get('/api/me', APPROVER).then((r) => r.json()),
     ])
 
-    expect(recorder).toEqual({ id: 'somchai', name: 'สมชาย', role: 'recorder' })
-    expect(approver).toEqual({ id: 'boss', name: 'หัวหน้า', role: 'approver' })
+    // bootstrapMode = false เพราะ settings จำลองมีรายชื่อผู้อนุมัติแล้ว
+    expect(recorder).toEqual({
+      id: 'somchai',
+      name: 'สมชาย',
+      role: 'recorder',
+      bootstrapMode: false,
+    })
+    expect(approver).toEqual({
+      id: 'boss',
+      name: 'หัวหน้า',
+      role: 'approver',
+      bootstrapMode: false,
+    })
   })
 })
 
@@ -247,5 +258,22 @@ describe('ยังไม่ได้ตั้งค่าเซิร์ฟเ�
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true, inventoryPool: 'not-configured' })
+  })
+})
+
+describe('โรงพยาบาลที่เพิ่งติดตั้ง (ยังไม่มีผู้อนุมัติ)', () => {
+  it('MUST let the first user approve so the module can be configured at all', async () => {
+    // ไม่มีคีย์ approver_logins เลย = ติดตั้งใหม่
+    const settings = await import('@server/services/settingsService')
+    const spy = vi.spyOn(settings, 'getAllSettings').mockResolvedValue([])
+
+    const body = (await (await get('/api/me', RECORDER)).json()) as {
+      role: string
+      bootstrapMode: boolean
+    }
+
+    expect(body.role).toBe('approver')
+    expect(body.bootstrapMode).toBe(true)
+    spy.mockRestore()
   })
 })

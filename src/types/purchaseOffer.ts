@@ -26,6 +26,8 @@ export interface MeResponse {
   id: string
   name: string
   role: Role
+  /** true = ยังไม่ได้กำหนดผู้อนุมัติ ระบบเปิดสิทธิ์ให้ทุกคนชั่วคราวเพื่อให้ตั้งค่าครั้งแรกได้ */
+  bootstrapMode?: boolean
 }
 
 /** ตัวเลือกใน dropdown (GET /api/master/*) */

@@ -23,12 +23,28 @@ export interface ConnectionInput extends ConnectionSummary {
   password: string
 }
 
+/** สถานะตารางของโมดูลบนเซิร์ฟเวอร์คลัง (สร้างอัตโนมัติเมื่อเชื่อมต่อได้) */
+export interface SchemaStatus {
+  ready: boolean
+  existingTables: string[]
+  missingTables: string[]
+  appliedMigrations: { filename: string; applied_at: string }[]
+  error: string | null
+}
+
 export interface SetupStatus {
   isConfigured: boolean
   source: 'env' | 'file' | 'sys_var' | 'none'
   connection: ConnectionSummary | null
   poolActive: boolean
   warnings: string[]
+  schema: SchemaStatus
+}
+
+export interface MigrateResult {
+  applied: string[]
+  skipped: string[]
+  status: SchemaStatus
 }
 
 export interface DiscoverResult {
@@ -113,8 +129,17 @@ export function testConnection(connection: ConnectionInput): Promise<ProbeResult
   return call<ProbeResult>('/api/setup/test', connection)
 }
 
-export function saveConnection(
-  connection: ConnectionInput,
-): Promise<{ ok: boolean; connection: ConnectionSummary; serverVersion?: string }> {
+export function saveConnection(connection: ConnectionInput): Promise<{
+  ok: boolean
+  connection: ConnectionSummary
+  serverVersion?: string
+  schema?: SchemaStatus
+  appliedMigrations?: string[]
+}> {
   return call('/api/setup/save', connection)
+}
+
+/** สร้าง/อัปเดตตารางของโมดูลด้วยมือ (ปกติระบบทำให้เองตอนบันทึกค่าเชื่อมต่อ) */
+export function runMigration(): Promise<MigrateResult> {
+  return call<MigrateResult>('/api/setup/migrate', {})
 }

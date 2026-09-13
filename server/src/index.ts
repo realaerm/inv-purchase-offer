@@ -12,6 +12,7 @@ import { closeInventoryPool, setInventoryConnection } from '@server/db/inventory
 import { log } from '@server/lib/http'
 import { loadConnection } from '@server/services/configStore'
 import { redact, resolveInventoryConfig } from '@server/services/inventoryConfig'
+import { ensureModuleSchema } from '@server/services/schemaBootstrap'
 
 const DEFAULT_PORT = 5174
 
@@ -36,6 +37,32 @@ async function activateStoredConnection(): Promise<void> {
     source: resolved.source,
     ...redact(resolved.connection),
   })
+
+  await bootstrapSchema()
+}
+
+/**
+ * สร้างตารางของโมดูลให้อัตโนมัติเมื่อเชื่อมต่อได้
+ *
+ * โรงพยาบาลใหม่ที่เพิ่งติดตั้งยังไม่มีตาราง po_offer_* — ทำให้ผู้ดูแลไม่ต้องรัน
+ * สคริปต์เอง ปิดได้ด้วย INV_AUTO_MIGRATE=false ถ้า รพ. ต้องการให้ DBA รัน DDL เอง
+ * และล้มเหลวไม่ทำให้เซิร์ฟเวอร์ล่ม เพราะหน้าตั้งค่าต้องเปิดได้เสมอเพื่อแก้ปัญหา
+ */
+async function bootstrapSchema(): Promise<void> {
+  if (process.env.INV_AUTO_MIGRATE === 'false') {
+    log('info', 'ปิดการสร้างตารางอัตโนมัติไว้ (INV_AUTO_MIGRATE=false)')
+    return
+  }
+
+  const result = await ensureModuleSchema({ appliedBy: 'startup' })
+
+  if (result.status.error !== null) {
+    log('warn', 'ตารางของโมดูลยังไม่พร้อมใช้งาน', { error: result.status.error })
+    return
+  }
+  if (result.applied.length > 0) {
+    log('info', 'ติดตั้งตารางของโมดูลเรียบร้อย', { files: result.applied.join(', ') })
+  }
 }
 
 async function main(): Promise<void> {

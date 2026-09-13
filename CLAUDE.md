@@ -64,7 +64,9 @@ resolution throw.
 2. HOSxP tables are read-only, except `stock_request` and `stock_request_list`,
    which accept **INSERT only**.
 3. This module's own data lives in new tables on the PostgreSQL inventory
-   server, next to `stock_*`, so transactions can span both.
+   server, next to `stock_*`, so transactions can span both. They are created
+   automatically on first connect by `services/schemaBootstrap.ts`, which runs
+   `server/sql/*.sql` only after checking every statement touches `po_offer_*`.
 4. Multi-statement writes go through `withTransaction()` — commit or rollback,
    never a partial write.
 5. Every query is parameterised (`$1, $2, ...`). No string-concatenated SQL.

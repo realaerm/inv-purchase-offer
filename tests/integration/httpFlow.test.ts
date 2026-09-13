@@ -22,6 +22,7 @@ import {
 } from '@server/db/inventoryDb'
 import { loadConnection } from '@server/services/configStore'
 import { resolveInventoryConfig } from '@server/services/inventoryConfig'
+import { saveSettings } from '@server/services/settingsService'
 
 loadEnvFile()
 const resolved = await resolveInventoryConfig({
@@ -43,6 +44,8 @@ const HEADERS = {
 let server: Server
 let baseUrl: string
 const createdOfferIds: number[] = []
+/** ค่าเดิมของ approver_logins ในฐานจริง — คืนค่าเมื่อจบเทสต์ */
+let originalApprovers: string | null = null
 
 async function get(path: string): Promise<Response> {
   return fetch(`${baseUrl}${path}`, { headers: HEADERS })
@@ -89,9 +92,20 @@ describe.skipIf(!reachable)('เส้นทาง HTTP บนฐานข้อ
         ORDER BY item_id LIMIT 1`,
     )
     itemId = items[0]?.item_id ?? 0
+
+    // ตั้งผู้อนุมัติเป็นคนอื่นชั่วคราว เพื่อทดสอบ "recorder อนุมัติไม่ได้" ให้แน่นอน
+    // (ถ้าไม่ตั้ง ระบบจะอยู่ในโหมดติดตั้งใหม่ซึ่งเปิดสิทธิ์ให้ทุกคน)
+    const current = await query<{ setting_value: string }>(
+      `SELECT setting_value FROM po_offer_setting WHERE setting_key = 'approver_logins'`,
+    )
+    originalApprovers = current[0]?.setting_value ?? null
+    await saveSettings([{ key: 'approver_logins', value: 'ผู้อนุมัติสมมติของเทสต์' }], 'vitest')
   })
 
   afterAll(async () => {
+    // คืนค่า approver_logins ให้เหมือนก่อนรันเทสต์
+    await saveSettings([{ key: 'approver_logins', value: originalApprovers ?? '' }], 'vitest')
+
     if (createdOfferIds.length > 0) {
       await query('DELETE FROM po_offer_audit_log WHERE po_offer_id = ANY($1::int[])', [
         createdOfferIds,
@@ -242,6 +256,18 @@ describe.skipIf(!reachable)('เส้นทาง HTTP บนฐานข้อ
 
       const approve = await post(`/api/offers/${header.po_offer_id}/approve`, {})
       expect(approve.status).toBe(403)
+      const body = (await approve.json()) as { error: string }
+      expect(body.error).toContain('สิทธิ์ของคุณไม่เพียงพอ')
+    })
+
+    it('MUST report the caller as a recorder while someone else is the approver', async () => {
+      const me = (await (await get('/api/me')).json()) as {
+        role: string
+        bootstrapMode: boolean
+      }
+
+      expect(me.role).toBe('recorder')
+      expect(me.bootstrapMode).toBe(false)
     })
 
     it('MUST give the print page its data, including freshly computed rates', async () => {

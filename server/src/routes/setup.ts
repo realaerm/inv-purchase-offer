@@ -22,6 +22,7 @@ import {
   SYS_VAR_HOSXP_SERVER_FLAG,
   type InventoryConnection,
 } from '@server/services/inventoryConfig'
+import { ensureModuleSchema, getSchemaStatus } from '@server/services/schemaBootstrap'
 import { asyncRoute, badRequest, log } from '@server/lib/http'
 import { parseBody } from '@server/lib/validate'
 
@@ -61,6 +62,9 @@ export function setupRouter(): Router {
         connection: resolved.summary,
         poolActive: isConnected(),
         warnings: resolved.warnings,
+        // ตารางของโมดูลอาจยังไม่ถูกสร้าง (โรงพยาบาลที่เพิ่งติดตั้ง) — หน้าตั้งค่า
+        // ใช้ค่านี้บอกสถานะและเสนอปุ่มสร้างให้
+        schema: await getSchemaStatus(),
       })
     }),
   )
@@ -130,8 +134,36 @@ export function setupRouter(): Router {
       await saveConnection(connection)
       await setInventoryConnection(connection)
 
-      log('info', 'inventory connection saved', redact(connection))
-      res.json({ ok: true, connection: redact(connection), serverVersion: probe.serverVersion })
+      // โรงพยาบาลใหม่: ตาราง po_offer_* ยังไม่มี — สร้างให้ทันทีที่ต่อติด
+      // ผู้ดูแลจึงใช้งานต่อได้เลยโดยไม่ต้องรันสคริปต์เอง
+      const schema = await ensureModuleSchema({ appliedBy: 'setup' })
+
+      log('info', 'inventory connection saved', {
+        ...redact(connection),
+        schemaReady: schema.status.ready,
+        applied: schema.applied.join(', '),
+      })
+      res.json({
+        ok: true,
+        connection: redact(connection),
+        serverVersion: probe.serverVersion,
+        schema: schema.status,
+        appliedMigrations: schema.applied,
+      })
+    }),
+  )
+
+  /**
+   * สร้าง/อัปเดตตารางของโมดูลด้วยมือ
+   *
+   * ปกติทำให้อัตโนมัติตอนบันทึกค่าเชื่อมต่อและตอนบูต — endpoint นี้ไว้ให้กดซ้ำ
+   * เมื่อครั้งแรกล้มเพราะสิทธิ์ไม่พอ แล้ว DBA เพิ่งให้สิทธิ์มา
+   */
+  router.post(
+    '/migrate',
+    asyncRoute(async (_req, res) => {
+      const result = await ensureModuleSchema({ appliedBy: 'manual' })
+      res.status(result.status.error === null ? 200 : 500).json(result)
     }),
   )
 

@@ -13,7 +13,7 @@
 import type { NextFunction, Request, Response } from 'express'
 
 import { getAllSettings } from '@server/services/settingsService'
-import { HttpError } from '@server/lib/http'
+import { HttpError, log } from '@server/lib/http'
 
 export type Role = 'recorder' | 'approver' | 'viewer'
 
@@ -65,20 +65,50 @@ function parseCsv(value: string | undefined): string[] {
     .filter((part) => part !== '')
 }
 
-/** หาสิทธิ์ของผู้ใช้จาก settings (approver_logins / viewer_logins / default_role) */
-export async function resolveRole(actor: Actor): Promise<Role> {
+export interface ResolvedRole {
+  role: Role
+  /**
+   * true = ยังไม่มีการกำหนดผู้อนุมัติเลย ระบบจึงเปิดให้ผู้ใช้ทุกคนเป็นผู้อนุมัติชั่วคราว
+   * เพื่อให้ตั้งค่าครั้งแรกได้ (ไม่งั้นจะตั้งค่าไม่ได้เลย เพราะการตั้งค่าต้องใช้สิทธิ์อนุมัติ)
+   */
+  bootstrapMode: boolean
+}
+
+/**
+ * หาสิทธิ์ของผู้ใช้จาก settings (approver_logins / viewer_logins / default_role)
+ *
+ * กรณีติดตั้งใหม่: ถ้ายังไม่มีรายชื่อผู้อนุมัติและไม่ได้ตั้ง default_role ระบบจะถือว่า
+ * ผู้ใช้ทุกคนเป็นผู้อนุมัติไปก่อน — ไม่งั้นโรงพยาบาลใหม่จะตั้งค่าอะไรไม่ได้เลย
+ * หน้าจอจะขึ้นเตือนให้รีบกำหนดผู้อนุมัติ และ log ไว้ทุกครั้งที่ยังอยู่ในโหมดนี้
+ */
+export async function resolveRoleDetail(actor: Actor): Promise<ResolvedRole> {
   const rows = await getAllSettings()
   const map = new Map(rows.map((r) => [r.setting_key, r.setting_value]))
 
   const approvers = parseCsv(map.get('approver_logins'))
   const viewers = parseCsv(map.get('viewer_logins'))
 
-  if (approvers.includes(actor.id)) return 'approver'
-  if (viewers.includes(actor.id)) return 'viewer'
+  if (approvers.includes(actor.id)) return { role: 'approver', bootstrapMode: false }
+  if (viewers.includes(actor.id)) return { role: 'viewer', bootstrapMode: false }
 
   const fallback = map.get('default_role')
-  if (fallback === 'viewer' || fallback === 'approver' || fallback === 'recorder') return fallback
-  return 'recorder'
+  if (fallback === 'viewer' || fallback === 'approver' || fallback === 'recorder') {
+    return { role: fallback, bootstrapMode: false }
+  }
+
+  if (approvers.length === 0) {
+    log('warn', 'ยังไม่ได้กำหนดผู้อนุมัติ — เปิดสิทธิ์อนุมัติชั่วคราวให้ผู้ใช้ทุกคน', {
+      actor: actor.id,
+    })
+    return { role: 'approver', bootstrapMode: true }
+  }
+
+  return { role: 'recorder', bootstrapMode: false }
+}
+
+/** สิทธิ์ของผู้ใช้ (ดู {@link resolveRoleDetail} สำหรับกรณีติดตั้งใหม่) */
+export async function resolveRole(actor: Actor): Promise<Role> {
+  return (await resolveRoleDetail(actor)).role
 }
 
 /** ต้องมีตัวตน (ไม่ใช่ 'unknown') จึงจะเขียนข้อมูลได้ */

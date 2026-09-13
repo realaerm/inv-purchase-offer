@@ -29,6 +29,8 @@ interface OfferIdentityValue {
   notConfigured: boolean
   canRecord: boolean
   canApprove: boolean
+  /** ยังไม่ได้กำหนดผู้อนุมัติ — ทุกคนอนุมัติได้ชั่วคราว ควรรีบตั้งค่า */
+  bootstrapMode: boolean
   reload: () => void
 }
 
@@ -38,6 +40,7 @@ const OfferIdentityContext = createContext<OfferIdentityValue | null>(null)
 interface RoleLookup {
   actorId: string
   role: Role | null
+  bootstrapMode: boolean
   error: ApiError | null
 }
 
@@ -58,12 +61,20 @@ export function OfferIdentityProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController()
 
     getMe(actor, controller.signal)
-      .then((me) => setLookup({ actorId: actor.id, role: me.role, error: null }))
+      .then((me) =>
+        setLookup({
+          actorId: actor.id,
+          role: me.role,
+          bootstrapMode: me.bootstrapMode === true,
+          error: null,
+        }),
+      )
       .catch((caught: unknown) => {
         if (caught instanceof DOMException && caught.name === 'AbortError') return
         setLookup({
           actorId: actor.id,
           role: null,
+          bootstrapMode: false,
           error: caught instanceof ApiError ? caught : new ApiError(0, String(caught)),
         })
       })
@@ -87,6 +98,7 @@ export function OfferIdentityProvider({ children }: { children: ReactNode }) {
       notConfigured: error?.code === 'NOT_CONFIGURED',
       canRecord: role === 'recorder' || role === 'approver',
       canApprove: role === 'approver',
+      bootstrapMode: current?.bootstrapMode ?? false,
       reload,
     }
   }, [actor, lookup, reload])
