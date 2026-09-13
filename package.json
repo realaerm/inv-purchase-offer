@@ -19,7 +19,9 @@
     "dev:api": "tsx watch --tsconfig server/tsconfig.json server/src/index.ts",
     "start": "tsx --tsconfig server/tsconfig.json server/src/index.ts",
     "typecheck": "tsc -b",
-    "db:introspect": "tsx --tsconfig server/tsconfig.json server/scripts/introspect.ts"
+    "db:introspect": "tsx --tsconfig server/tsconfig.json server/scripts/introspect.ts",
+    "db:validate": "tsx --tsconfig server/tsconfig.json server/scripts/validateDdl.ts",
+    "db:migrate": "tsx --tsconfig server/tsconfig.json server/scripts/migrate.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.4",

@@ -6,8 +6,9 @@
 -- ทุกตารางอยู่บนเซิร์ฟเวอร์คลังเดียวกับ stock_* เพื่อให้ transaction ตอนสร้าง PR
 -- ครอบทั้งการเขียน stock_request และการอัปเดตตารางเหล่านี้พร้อมกันได้
 --
--- หมายเหตุ PostgreSQL: ไม่มี ENGINE / DEFAULT CHARSET แบบ MySQL — ฐานเป็น UTF-8
--- อยู่แล้ว ส่วน hos_guid varchar(38) ใส่ไว้ตามแนวทาง HOSxP เพื่อรองรับ sync/อ้างอิง
+-- หมายเหตุ PostgreSQL: ไม่มี ENGINE / DEFAULT CHARSET แบบ MySQL — ฐาน inventory ของ
+-- HOSxP ใช้ server_encoding WIN874 (ไทย) ค่าที่เขียนต้องอยู่ในช่วง CP874
+-- ส่วน hos_guid varchar(38) ใส่ไว้ตามแนวทาง HOSxP เพื่อรองรับ sync/อ้างอิง
 --
 -- รันด้วย:  psql -f server/sql/001_create_po_offer_tables.sql
 -- ปลอดภัยต่อการรันซ้ำ (IF NOT EXISTS) — และ "ไม่แตะตารางเดิมของ HOSxP เลย"
@@ -97,7 +98,14 @@ CREATE INDEX IF NOT EXISTS ix_po_offer_hos_guid   ON po_offer_document (hos_guid
 
 -- -----------------------------------------------------------------------------
 -- 2) po_offer_item — รายการในใบเสนอซื้อ (detail)
---    snapshot ค่า ณ เวลาสร้างใบ (คงเหลือ/rate/ราคา) เพื่อพิมพ์ย้อนหลังได้ตรง
+--
+--    เก็บเฉพาะ "สิ่งที่ผู้ใช้ตัดสินใจ" ในใบเสนอซื้อ (จำนวนซื้อ ราคา ผู้ขาย ฯลฯ)
+--    ส่วนค่าที่เป็นสถานะพัสดุ ณ ปัจจุบัน (คงเหลือ / rate / วันสั่งล่าสุด / ชื่อ-รหัส /
+--    ราคาซื้อล่าสุด / วันตรวจรับล่าสุด) ให้ "ดึงสดจาก stock_item ด้วย JOIN" ตอนแสดง
+--    และตอนพิมพ์ ไม่เก็บ snapshot ไว้ในตารางนี้
+--
+--    ผลที่ตามมา: การพิมพ์เอกสารย้อนหลังจะแสดงคงเหลือ/rate ล่าสุด ไม่ใช่ค่า ณ วันที่
+--    สร้างใบ (เป็นไปตามที่เลือกให้ดึงสดจาก stock_item)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS po_offer_item (
   po_offer_item_id       integer      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -105,39 +113,24 @@ CREATE TABLE IF NOT EXISTS po_offer_item (
                          REFERENCES po_offer_document (po_offer_id) ON DELETE CASCADE,
   line_no                integer      NOT NULL,                 -- ลำดับในเอกสาร
 
-  -- อ้างอิงพัสดุ (stock_item) — เก็บ snapshot ชื่อ/รหัสไว้ด้วยเผื่อ master เปลี่ยน
+  -- อ้างอิงพัสดุ — เก็บแค่ item_id ส่วนชื่อ/รหัส/ประเภทยา/คงเหลือ/rate ดึงสดด้วย JOIN
   item_id                integer      NOT NULL,                 -- stock_item.item_id
-  item_code              varchar(25),                           -- รหัสพัสดุ ณ เวลาสร้าง
-  item_name             varchar(250),                           -- ชื่อพัสดุ ณ เวลาสร้าง
-  icode                  varchar(7),                            -- เชื่อม drugitems/nondrugitems
-  drug_account           varchar(5),                            -- ED / NED / NED(n) จาก drugitems.drugaccount
 
+  -- ค่าที่ผู้ใช้แก้ในตาราง (override ค่า default จาก stock_item ได้)
   package_qty            integer,                               -- ขนาดบรรจุ (แก้ไขได้)
-  stock_item_unit_id     integer,                               -- หน่วยนับ (stock_item_unit)
-  unit_name              varchar(50),                           -- ชื่อหน่วยนับ ณ เวลาสร้าง
+  stock_item_unit_id     integer,                               -- หน่วยนับที่เลือก (stock_item_unit)
 
   approved               boolean      NOT NULL DEFAULT false,   -- ติ๊กอนุมัติรายบรรทัด
 
-  -- snapshot ตัวเลข ณ เวลาสร้างใบ
-  onhand_qty             numeric(22,3) NOT NULL DEFAULT 0,      -- จำนวนคงเหลือ
-  po_wait_qty            numeric(22,3) NOT NULL DEFAULT 0,      -- จำนวนรอส่งจาก PO
-  rate_warehouse         numeric(15,1) NOT NULL DEFAULT 0,      -- Rate คลัง (ทศนิยม 1)
-  rate_pharmacy          numeric(15,1) NOT NULL DEFAULT 0,      -- Rate ห้องยา (ทศนิยม 1)
-  last_po_date           date,                                  -- วันที่สั่งซื้อล่าสุด
-
   purchase_date          date,                                  -- วันที่สั่งซื้อรอบปัจจุบัน (แก้ไขได้)
   purchase_qty           numeric(22,3) NOT NULL DEFAULT 0,      -- จำนวนซื้อ (ช่องหลักที่ผู้ใช้กรอก)
-  suggest_qty            numeric(22,3),                         -- จำนวนแนะนำ (คำนวณให้ แก้ได้)
-  last_purchase_price    numeric(15,3),                         -- ราคา/หน่วยที่ซื้อล่าสุด
-  unit_price             numeric(15,3) NOT NULL DEFAULT 0,      -- ราคาต่อหน่วยที่จะใช้
-  total_price            numeric(15,2) NOT NULL DEFAULT 0,      -- ราคารวม = purchase_qty x unit_price
+  unit_price             numeric(15,3) NOT NULL DEFAULT 0,      -- ราคาต่อหน่วยที่จะใช้ (ผู้ใช้ยืนยัน)
+  total_price            numeric(15,2) NOT NULL DEFAULT 0,      -- ราคารวม = purchase_qty x unit_price (บันทึกเป็นค่าเงินของเอกสาร)
 
-  expire_date            date,                                  -- วันหมดอายุ
-  sell_allow_year        integer,                               -- อนุญาตขายยา (ปี)
-  last_receive_date      date,                                  -- วันที่ตรวจรับครั้งสุดท้าย
-  last_receive_qty       numeric(22,3),                         -- จำนวนตรวจรับครั้งสุดท้าย
+  expire_date            date,                                  -- วันหมดอายุ (แก้ไขได้)
+  sell_allow_year        integer,                               -- อนุญาตขายยา (ปี) (แก้ไขได้)
 
-  -- ผู้จำหน่าย (ใช้จัดกลุ่มตอนสร้าง PR ในโมดูล 4)
+  -- ผู้จำหน่ายที่ผู้ใช้เลือก (ใช้จัดกลุ่มตอนสร้าง PR ในโมดูล 4)
   stock_vendor_id        integer,                               -- ผู้ขาย (stock_vendor)
   supplier_id            integer,                               -- ผู้จัดจำหน่าย (stock_supplier)
   supplier_item_id       integer,
@@ -155,7 +148,7 @@ CREATE TABLE IF NOT EXISTS po_offer_item (
   CONSTRAINT uq_po_offer_item_line UNIQUE (po_offer_id, line_no)
 );
 
-COMMENT ON TABLE po_offer_item IS 'รายการในใบเสนอซื้อ (Purchase Offer line items) พร้อม snapshot ณ เวลาสร้าง';
+COMMENT ON TABLE po_offer_item IS 'รายการในใบเสนอซื้อ (Purchase Offer line items) — เก็บการตัดสินใจของผู้ใช้ ส่วนสถานะพัสดุดึงสดจาก stock_item';
 
 CREATE INDEX IF NOT EXISTS ix_po_offer_item_doc     ON po_offer_item (po_offer_id);
 CREATE INDEX IF NOT EXISTS ix_po_offer_item_item    ON po_offer_item (item_id);
