@@ -4,6 +4,8 @@
 
 import type { NextFunction, Request, Response } from 'express'
 
+import { NotConfiguredError } from '@server/db/inventoryDb'
+
 type Level = 'info' | 'warn' | 'error'
 
 /** Emit one JSON log line, so container logs stay greppable. */
@@ -32,6 +34,11 @@ export const badRequest = (message: string, details?: unknown): HttpError =>
 
 export const unauthorized = (message: string): HttpError => new HttpError(401, message)
 
+export const notFound = (message: string): HttpError => new HttpError(404, message)
+
+/** สถานะของข้อมูลไม่ยอมให้ทำรายการนี้ (เช่น ใบที่อนุมัติแล้วแก้ไม่ได้) */
+export const conflict = (message: string): HttpError => new HttpError(409, message)
+
 /** Wrap an async handler so a rejected promise reaches the error middleware. */
 export function asyncRoute(
   handler: (req: Request, res: Response) => Promise<unknown>,
@@ -54,6 +61,14 @@ export function errorHandler(
   res: Response,
   _next: NextFunction,
 ): void {
+  // ยังไม่ได้ตั้งค่าเซิร์ฟเวอร์คลัง = ระบบยังให้บริการส่วนนี้ไม่ได้ (503) ไม่ใช่ bug (500)
+  // ข้อความบอกทางแก้ไว้แล้วในตัว error จึงส่งต่อให้ผู้ใช้ได้ตรง ๆ
+  if (error instanceof NotConfiguredError) {
+    log('warn', 'request before configuration', { path: req.path })
+    res.status(503).json({ error: error.message, code: 'NOT_CONFIGURED' })
+    return
+  }
+
   if (error instanceof HttpError) {
     log('warn', 'request rejected', {
       path: req.path,

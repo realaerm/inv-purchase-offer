@@ -1,0 +1,116 @@
+// =============================================================================
+// ตัวตนผู้ใช้ + สิทธิ์ 3 ระดับ
+//
+// ผู้ใช้เข้าระบบด้วย BMS Session (ฝั่ง frontend resolve session แล้วส่งตัวตนมากับ
+// ทุก request ผ่าน header) แบ็กเอนด์ใช้ตัวตนนี้บันทึก created_by / audit และ
+// ตัดสินสิทธิ์ สิทธิ์ 3 ระดับ (recorder / approver / viewer) ตั้งค่าได้ต่อ รพ.
+// ผ่าน po_offer_setting: approver_logins, viewer_logins, default_role
+//
+// หมายเหตุความปลอดภัย: ระบบนี้เป็นเครื่องมือภายในโรงพยาบาล ตัวตนมาจาก header ที่
+// frontend เซ็ตจาก session ที่ตรวจแล้ว เพียงพอสำหรับ audit และการแบ่งสิทธิ์ระดับงาน
+// =============================================================================
+
+import type { NextFunction, Request, Response } from 'express'
+
+import { getAllSettings } from '@server/services/settingsService'
+import { HttpError } from '@server/lib/http'
+
+export type Role = 'recorder' | 'approver' | 'viewer'
+
+export interface Actor {
+  /** loginname/id ของผู้ใช้จาก BMS session */
+  id: string
+  /** ชื่อที่แสดง */
+  name: string
+  /** bms_url สำหรับเรียก sys_var (ถ้ามี) */
+  apiUrl: string | null
+  /** bearer token ของ session (ถ้ามี) */
+  token: string | null
+}
+
+/**
+ * ค่าใน header HTTP ต้องเป็น Latin-1 เท่านั้น ชื่อไทยจึงส่งตรง ๆ ไม่ได้
+ * (fetch/XHR โยน error ทันที) ฝั่ง frontend ต้อง encodeURIComponent ชื่อก่อนส่ง
+ * แล้วที่นี่ถอดกลับ — ค่าที่ไม่ได้ encode มา (เช่นชื่ออังกฤษ) ใช้ได้ตามเดิม
+ */
+function decodeHeaderValue(value: string): string {
+  if (!value.includes('%')) return value
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    // ถอดไม่ได้ = ไม่ใช่ percent-encoding ที่ถูกต้อง ใช้ค่าดิบดีกว่าทิ้งตัวตนไป
+    return value
+  }
+}
+
+/** อ่านตัวตนจาก header ที่ frontend ส่งมา (ไม่มี = ผู้ใช้นิรนาม) */
+export function getActor(req: Request): Actor {
+  const header = (name: string): string | null => {
+    const value = req.header(name)
+    return value === undefined || value === '' ? null : decodeHeaderValue(value)
+  }
+  return {
+    id: header('x-bms-actor') ?? 'unknown',
+    name: header('x-bms-actor-name') ?? 'ไม่ทราบชื่อ',
+    apiUrl: header('x-bms-api-url'),
+    token: header('x-bms-token'),
+  }
+}
+
+function parseCsv(value: string | undefined): string[] {
+  if (value === undefined) return []
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+}
+
+/** หาสิทธิ์ของผู้ใช้จาก settings (approver_logins / viewer_logins / default_role) */
+export async function resolveRole(actor: Actor): Promise<Role> {
+  const rows = await getAllSettings()
+  const map = new Map(rows.map((r) => [r.setting_key, r.setting_value]))
+
+  const approvers = parseCsv(map.get('approver_logins'))
+  const viewers = parseCsv(map.get('viewer_logins'))
+
+  if (approvers.includes(actor.id)) return 'approver'
+  if (viewers.includes(actor.id)) return 'viewer'
+
+  const fallback = map.get('default_role')
+  if (fallback === 'viewer' || fallback === 'approver' || fallback === 'recorder') return fallback
+  return 'recorder'
+}
+
+/** ต้องมีตัวตน (ไม่ใช่ 'unknown') จึงจะเขียนข้อมูลได้ */
+export function requireActor(req: Request, _res: Response, next: NextFunction): void {
+  const actor = getActor(req)
+  if (actor.id === 'unknown') {
+    next(new HttpError(401, 'ไม่พบข้อมูลผู้ใช้ กรุณาเข้าสู่ระบบด้วย BMS Session ก่อน'))
+    return
+  }
+  next()
+}
+
+/**
+ * ต้องมีสิทธิ์อย่างน้อยตามที่กำหนด (ลำดับ: viewer < recorder < approver)
+ * ใช้กับ endpoint ที่เขียน/อนุมัติ
+ */
+export function requireRole(minimum: Exclude<Role, 'viewer'>) {
+  const rank: Record<Role, number> = { viewer: 0, recorder: 1, approver: 2 }
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const actor = getActor(req)
+    if (actor.id === 'unknown') {
+      next(new HttpError(401, 'ไม่พบข้อมูลผู้ใช้ กรุณาเข้าสู่ระบบด้วย BMS Session ก่อน'))
+      return
+    }
+    resolveRole(actor)
+      .then((role) => {
+        if (rank[role] < rank[minimum]) {
+          next(new HttpError(403, 'สิทธิ์ของคุณไม่เพียงพอสำหรับการดำเนินการนี้'))
+          return
+        }
+        next()
+      })
+      .catch(next)
+  }
+}

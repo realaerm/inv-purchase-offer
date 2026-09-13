@@ -9,6 +9,10 @@ import express, { type Express } from 'express'
 
 import { isConnected } from '@server/db/inventoryDb'
 import { errorHandler } from '@server/lib/http'
+import { masterRouter } from '@server/routes/master'
+import { offersRouter } from '@server/routes/offers'
+import { reorderRouter } from '@server/routes/reorder'
+import { meRouter, settingsRouter } from '@server/routes/settings'
 import { setupRouter } from '@server/routes/setup'
 
 /** Reject oversized bodies outright; nothing here needs a large payload. */
@@ -27,6 +31,14 @@ export function createApp(): Express {
   })
 
   app.use('/api/setup', setupRouter())
+
+  // งานของโมดูล — ทุก router ต้องมีตัวตนผู้ใช้จาก BMS session (ดู lib/auth.ts)
+  // /api/setup อยู่นอกกลุ่มนี้โดยเจตนา: ตอนตั้งค่าครั้งแรกยังไม่มีฐานข้อมูลให้อ่านสิทธิ์
+  app.use('/api/me', meRouter())
+  app.use('/api/settings', settingsRouter())
+  app.use('/api/master', masterRouter())
+  app.use('/api/reorder', reorderRouter())
+  app.use('/api/offers', offersRouter())
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'ไม่พบ endpoint ที่ร้องขอ' })

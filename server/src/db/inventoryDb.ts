@@ -9,7 +9,7 @@
 // by string concatenation - see the project constitution, principle V.
 // =============================================================================
 
-import { Pool, type PoolClient, type QueryResultRow } from 'pg'
+import { Pool, types as pgTypes, type PoolClient, type QueryResultRow } from 'pg'
 
 import type { InventoryConnection } from '@server/services/inventoryConfig'
 
@@ -20,6 +20,28 @@ const CONNECT_TIMEOUT_MS = 10_000
 const STATEMENT_TIMEOUT_MS = 60_000
 
 const MAX_POOL_CLIENTS = 10
+
+// -----------------------------------------------------------------------------
+// ชนิดข้อมูลที่ driver คืนกลับมา
+//
+// ค่าเริ่มต้นของ `pg` คืน NUMERIC/BIGINT เป็น "สตริง" (กันเสียความละเอียด) และคืน
+// DATE เป็น Date object ตามเขตเวลาเครื่อง ซึ่งทำให้:
+//   - จำนวนเงิน/จำนวนพัสดุที่ส่งไป frontend กลายเป็นสตริง ต้องแปลงซ้ำทุกที่
+//   - วันที่ (ไม่มีเวลา) เคลื่อนไป 1 วันเมื่อ serialize เป็น JSON (UTC)
+//
+// โมดูลนี้จึงตั้ง parser เอง: NUMERIC/BIGINT -> number, DATE -> สตริง 'YYYY-MM-DD'
+// ตามที่ฐานเก็บ (ฝั่ง UI แปลงเป็น พ.ศ. dd/mm/yyyy เอง)
+//
+// ขอบเขตที่ยอมรับได้: ยอดเงินของใบเสนอซื้ออยู่ในหลักล้าน ห่างจากขีดจำกัดความละเอียด
+// ของ double (9,007,199,254,740,991) มาก จึงไม่มีปัญหาปัดเศษในทางปฏิบัติ
+// -----------------------------------------------------------------------------
+const PG_OID_INT8 = 20
+const PG_OID_NUMERIC = 1700
+const PG_OID_DATE = 1082
+
+pgTypes.setTypeParser(PG_OID_NUMERIC, (value) => (value === null ? null : Number(value)))
+pgTypes.setTypeParser(PG_OID_INT8, (value) => (value === null ? null : Number(value)))
+pgTypes.setTypeParser(PG_OID_DATE, (value) => value)
 
 let pool: Pool | null = null
 let activeConnection: InventoryConnection | null = null

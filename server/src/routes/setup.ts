@@ -23,6 +23,7 @@ import {
   type InventoryConnection,
 } from '@server/services/inventoryConfig'
 import { asyncRoute, badRequest, log } from '@server/lib/http'
+import { parseBody } from '@server/lib/validate'
 
 /** A BMS session, supplied by the browser so the server can read sys_var. */
 const bmsTargetSchema = z.object({
@@ -38,21 +39,6 @@ const connectionSchema = z.object({
   password: z.string().min(1, 'ต้องระบุรหัสผ่านฐานข้อมูล'),
   ssl: z.boolean().default(false),
 })
-
-/** Parse a body against a schema, turning a failure into a 400 with field detail. */
-function parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
-  const result = schema.safeParse(body)
-  if (!result.success) {
-    throw badRequest(
-      'ข้อมูลที่ส่งมาไม่ถูกต้อง',
-      result.error.issues.map((issue) => ({
-        field: issue.path.join('.'),
-        message: issue.message,
-      })),
-    )
-  }
-  return result.data
-}
 
 export function setupRouter(): Router {
   const router = Router()
