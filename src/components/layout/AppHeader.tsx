@@ -61,7 +61,7 @@ export function AppHeader() {
             <Activity className="h-5 w-5" />
           </div>
           <div className="brand-text">
-            <h1 className="brand-title">Template App</h1>
+            <h1 className="brand-title">ระบบสร้างใบขอซื้อจากรายการที่ถึงจุดสั่งซื้อ</h1>
             <span className="brand-subtitle">BMS Session</span>
           </div>
         </div>
@@ -190,6 +190,8 @@ export function AppHeader() {
           margin: 0;
           line-height: 1.2;
           letter-spacing: -0.01em;
+          /* ชื่อระบบเป็นภาษาไทยยาว — ห้ามตัดบรรทัด ไม่งั้นแถบหัวสูงขึ้นผิดรูป */
+          white-space: nowrap;
         }
 
         .brand-subtitle {
@@ -378,6 +380,13 @@ export function AppHeader() {
           background: rgba(239, 68, 68, 0.1);
           border-color: rgba(239, 68, 68, 0.5);
           color: #ef4444;
+        }
+
+        /* จอแคบลง ชื่อระบบที่ยาวจะเบียดเมนู — เหลือไว้แค่ไอคอน */
+        @media (max-width: 1180px) {
+          .brand-text {
+            display: none;
+          }
         }
 
         @media (max-width: 768px) {

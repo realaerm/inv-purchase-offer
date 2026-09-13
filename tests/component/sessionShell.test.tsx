@@ -53,6 +53,19 @@ describe('แถบเมนู', () => {
     expect(screen.getByRole('link', { name: /การเชื่อมต่อ/ })).toHaveAttribute('href', '/setup')
   })
 
+  it('MUST name the system, not the template it was built from', () => {
+    render(
+      <MemoryRouter>
+        <AppHeader />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'ระบบสร้างใบขอซื้อจากรายการที่ถึงจุดสั่งซื้อ' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Template App/i)).not.toBeInTheDocument()
+  })
+
   it('MUST show who is signed in, which is also the name written on every document', () => {
     render(
       <MemoryRouter>
