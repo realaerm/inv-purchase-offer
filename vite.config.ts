@@ -12,6 +12,14 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
+    proxy: {
+      // API ของโมดูลนี้อยู่บน Express พอร์ต 5174 — เรียกด้วย path เดียวกับหน้าเว็บ
+      // ('/api/...') ทั้งตอน dev และตอน deploy (nginx proxy ให้เหมือนกัน)
+      // ส่วน BMS Session API เรียกด้วย URL เต็มจาก session จึงไม่ผ่าน proxy นี้
+      '/api': {
+        target: 'http://127.0.0.1:5174',
+      },
+    },
   },
   resolve: {
     alias: {

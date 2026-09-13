@@ -1,0 +1,16 @@
+# Express API ของโมดูลใบเสนอซื้อ (รันด้วย tsx — ไม่ต้อง build ฝั่ง server)
+FROM node:22-alpine
+WORKDIR /app
+
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
+
+COPY server ./server
+COPY tsconfig.json ./
+
+# ที่เก็บ config ที่เข้ารหัสจากหน้าตั้งค่า — ต้อง mount volume ไว้ ไม่งั้นค่าหายทุกครั้งที่ deploy ใหม่
+VOLUME ["/app/server/.config"]
+
+ENV PORT=5174
+EXPOSE 5174
+CMD ["npm", "run", "start"]

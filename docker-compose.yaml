@@ -1,9 +1,11 @@
 services:
-  bms-dashboard:
+  web:
     build: .
-    container_name: bms-session-demo-dashboard
+    container_name: inv-purchase-offer-web
     ports:
       - "3080:80"
+    depends_on:
+      - api
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
@@ -11,3 +13,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # nginx ของ web proxy /api/ มาที่นี่ (ชื่อ service ต้องตรงกับใน nginx.conf)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: inv-purchase-offer-api
+    restart: unless-stopped
+    environment:
+      # เว้นว่างได้ทั้งหมด — ตั้งค่าผ่านหน้าตั้งค่าของระบบแล้วเก็บแบบเข้ารหัสใน volume
+      INV_DB_HOST: ${INV_DB_HOST:-}
+      INV_DB_PORT: ${INV_DB_PORT:-5432}
+      INV_DB_NAME: ${INV_DB_NAME:-}
+      INV_DB_USER: ${INV_DB_USER:-}
+      INV_DB_PASS: ${INV_DB_PASS:-}
+      INV_DB_SSL: ${INV_DB_SSL:-false}
+      INV_CONFIG_KEY: ${INV_CONFIG_KEY:-}
+    volumes:
+      - api-config:/app/server/.config
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5174/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  api-config:
