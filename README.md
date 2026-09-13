@@ -3,8 +3,8 @@
 โมดูลเว็บสำหรับงานคลังยา ทำงานร่วมกับระบบ Inventory ของ **HOSxP XE** โดยตรง —
 ดึงรายการที่ถึงจุดสั่งซื้อ จัดทำใบเสนอซื้อ พิมพ์เอกสาร และสร้างใบขอซื้อ (PR) กลับเข้า HOSxP
 
-> **สถานะ:** วางโครงโปรเจกต์และชั้นเชื่อมต่อเสร็จแล้ว
-> ยังรอ credential ของฐานข้อมูลคลังเพื่อทำ **ขั้นที่ 1 — ตรวจสอบโครงสร้างตารางจริง**
+> **สถานะ:** ขั้นที่ 1–5 เสร็จแล้ว (ตรวจโครงสร้างจริง, ตารางใหม่, SQL หลัก,
+> Backend API, หน้าจอ) — เหลือ **ขั้นที่ 6 หน้าพิมพ์เอกสาร** และ **ขั้นที่ 7 สร้าง PR เข้า HOSxP**
 
 ## สถาปัตยกรรม
 
@@ -86,19 +86,50 @@ HOSxP (`EncrypTTextWithKey`) ที่ไม่เปิดเผย ระบ�
 
 ## API
 
-| Endpoint | ทำอะไร |
+ทุก endpoint ของโมดูล (ยกเว้น `/api/health` และ `/api/setup/*`) ต้องมีตัวตนผู้ใช้ใน
+header `x-bms-actor` / `x-bms-actor-name` — ค่าต้อง `encodeURIComponent` เพราะ header
+ของ HTTP รับได้แค่ Latin-1 (ชื่อไทยส่งตรง ๆ ไม่ได้) สิทธิ์ 3 ระดับคือ
+viewer < recorder < approver ตั้งได้ที่ `po_offer_setting`
+
+| Endpoint | ทำอะไร | สิทธิ์ |
+|---|---|---|
+| `GET /api/health` | health check (ตอบ 200 แม้ยังไม่ตั้งค่า) | — |
+| `GET /api/setup/status` | สถานะการตั้งค่าปัจจุบัน (ไม่คืนรหัสผ่าน) | — |
+| `POST /api/setup/discover` | อ่าน `sys_var` ผ่าน BMS session มา prefill | — |
+| `POST /api/setup/test` | ทดสอบ credential โดยไม่บันทึก | — |
+| `POST /api/setup/save` | ทดสอบ → เข้ารหัส → บันทึก → เปิดใช้ทันที | — |
+| `GET /api/me` | ตัวตน + สิทธิ์ที่ระบบตีความได้ | ทุกระดับ |
+| `GET /api/settings` | ค่าตั้งค่า + นิยามคีย์สำหรับสร้างฟอร์ม | ทุกระดับ |
+| `PUT /api/settings` | บันทึกค่าตั้งค่า (ตรวจค่าก่อน, transaction เดียว) | approver |
+| `GET /api/master/*` | คลัง/แผนก/งบ/วิธีจัดซื้อ/กลุ่มพัสดุ/ผู้ขาย/ผู้จัดจำหน่าย/ค้นหาพัสดุ | ทุกระดับ |
+| `GET /api/reorder` | รายการที่ถึงจุดสั่งซื้อ + Rate คลัง/ห้องยา + จำนวนแนะนำ | ทุกระดับ |
+| `GET /api/offers` | รายการใบเสนอซื้อ (กรอง + paging ฝั่ง server) | ทุกระดับ |
+| `POST /api/offers` | สร้างใบใหม่ — ออกเลขที่ใน transaction เดียวกับการบันทึก | recorder |
+| `GET /api/offers/:id` | ใบเดียว + รายการ (ข้อมูลพัสดุ JOIN สดจาก `stock_item`) | ทุกระดับ |
+| `PUT /api/offers/:id` | บันทึกการแก้ไข (เฉพาะสถานะร่าง/รออนุมัติ) | recorder |
+| `POST /api/offers/:id/submit` | ส่งอนุมัติ (ร่าง → รออนุมัติ) | recorder |
+| `POST /api/offers/:id/approve` | อนุมัติทั้งใบหรือเฉพาะรายการที่เลือก | approver |
+| `POST /api/offers/:id/cancel` | ยกเลิกใบพร้อมเหตุผล (ทำได้ก่อนสร้าง PR) | approver |
+| `POST /api/offers/:id/lines/approval` | ติ๊ก/ยกเลิกติ๊กอนุมัติรายบรรทัด | recorder |
+| `POST /api/offers/:id/print` | บันทึกว่ามีการพิมพ์ (audit) | ทุกระดับ |
+| `GET /api/offers/:id/audit` | ประวัติของใบนั้น | ทุกระดับ |
+
+## หน้าจอ
+
+| เส้นทาง | ทำอะไร |
 |---|---|
-| `GET /api/health` | health check (ตอบ 200 แม้ยังไม่ตั้งค่า) |
-| `GET /api/setup/status` | สถานะการตั้งค่าปัจจุบัน (ไม่คืนรหัสผ่าน) |
-| `POST /api/setup/discover` | อ่าน `sys_var` ผ่าน BMS session มา prefill |
-| `POST /api/setup/test` | ทดสอบ credential โดยไม่บันทึก |
-| `POST /api/setup/save` | ทดสอบ → เข้ารหัส → บันทึก → เปิดใช้ทันที |
+| `/` | ดึงรายการที่ถึงจุดสั่งซื้อ → ติ๊กรายการ → สร้างใบเสนอซื้อ |
+| `/offers` | รายการใบเสนอซื้อ + ตัวกรอง |
+| `/offers/new`, `/offers/:id` | จัดทำ/แก้ไขใบ พร้อมยอดเงินสด ๆ และปุ่มตามสถานะ/สิทธิ์ |
+| `/settings` | ตั้งค่าโมดูล (แผนกห้องยา, แหล่ง Rate, prefix เลขที่, สิทธิ์) |
+| `/setup` | ตั้งค่าการเชื่อมต่อเซิร์ฟเวอร์คลัง |
 
 ## กฎเหล็กเรื่องฐานข้อมูล
 
 1. **ห้าม ALTER / DROP ตารางเดิมของ HOSxP ทุกกรณี**
 2. ตารางเดิมอ่านอย่างเดียว ยกเว้น `stock_request` / `stock_request_list` ที่ **INSERT ได้เท่านั้น**
-3. ข้อมูลใบเสนอซื้อเก็บในตารางใหม่ของโมดูลนี้ (รอเสนอ schema ในขั้นที่ 2)
+3. ข้อมูลใบเสนอซื้อเก็บในตารางใหม่ของโมดูลนี้ — `po_offer_document`,
+   `po_offer_item`, `po_offer_audit_log`, `po_offer_setting` (ดู `server/sql/`)
 4. การเขียนหลาย statement ต้องอยู่ใน transaction เดียว — ใช้ `withTransaction()`
 5. ทุก query ใช้ parameterized (`$1, $2, ...`) ห้าม string concat
 
@@ -118,7 +149,22 @@ server/
       inventoryConfig.ts        ลำดับการหา config
       configStore.ts            เก็บ config แบบเข้ารหัส AES-256-GCM
   scripts/introspect.ts         ขั้นที่ 1 — ตรวจโครงสร้างตารางจริง
-src/                            React SPA (BMS session + shadcn/ui เดิม)
+    repositories/
+      reorderRepository.ts      โมดูล 1 — จุดสั่งซื้อ + Rate (ประกอบ SQL ตามแหล่ง Rate)
+      masterRepository.ts       master สำหรับ dropdown + ค้นหาพัสดุ
+      offerRepository.ts        po_offer_* (CRUD + เลขรันนิง + audit)
+    services/
+      offerCalc.ts              คำนวณยอดเงิน (pure — ฝั่ง browser import ตัวเดียวกัน)
+      offerNumber.ts            เลขที่เอกสาร PREFIX-ปีพ.ศ.-รันนิง
+      offerService.ts           กฎธุรกิจ + สถานะ + transaction
+      settingsService.ts        ค่าตั้งค่าของโมดูล + การตรวจค่า
+    routes/                     setup, me, settings, master, reorder, offers
+    lib/auth.ts                 ตัวตนจาก header + สิทธิ์ 3 ระดับ
+  sql/                          DDL ของตารางใหม่ (รันซ้ำได้)
+src/
+  pages/                        5 หน้าจอของโมดูล
+  services/purchaseOfferApi.ts  ตัวเรียก API ของโมดูล (แนบตัวตน + แปลง error)
+  utils/thaiFormat.ts           วันที่ พ.ศ. และจำนวนเงินแบบไทย (ที่เดียว)
 tests/                          unit / component / integration / api
 docs/BMS-SESSION-FOR-DEV.md     BMS Session API v3.0
 .specify/memory/constitution.md มาตรฐานการพัฒนา 9 ข้อ
@@ -129,11 +175,11 @@ docs/BMS-SESSION-FOR-DEV.md     BMS Session API v3.0
 | ขั้น | งาน | สถานะ |
 |---|---|---|
 | — | วางโครงโปรเจกต์ + ชั้นเชื่อมต่อ | ✅ เสร็จ |
-| 1 | ตรวจสอบโครงสร้างตารางจริง (`DESCRIBE`) | ⏳ รอ credential — สคริปต์พร้อมแล้ว |
-| 2 | เสนอ `CREATE TABLE` ตารางใหม่ → **หยุดรอยืนยัน** | ⏳ |
-| 3 | SQL หลัก (จุดสั่งซื้อ + Rate) → **หยุดรอยืนยัน** | ⏳ |
-| 4 | Backend API | ⏳ |
-| 5 | Frontend | ⏳ |
+| 1 | ตรวจสอบโครงสร้างตารางจริง (`DESCRIBE`) | ✅ `docs/SCHEMA-REPORT.md` |
+| 2 | ตารางใหม่ของโมดูล (`po_offer_*`) | ✅ สร้างบนฐานจริงแล้ว |
+| 3 | SQL หลัก (จุดสั่งซื้อ + Rate คลัง/ห้องยา) | ✅ ยืนยันกับฐานจริง |
+| 4 | Backend API | ✅ `/api/{me,settings,master,reorder,offers}` |
+| 5 | Frontend | ✅ 5 หน้าจอ |
 | 6 | หน้าพิมพ์เอกสาร | ⏳ |
 | 7 | สร้าง PR เข้า `stock_request` / `stock_request_list` | ⏳ |
 
