@@ -11,6 +11,7 @@
 
 import type {
   AuditEntry,
+  CreatePrResult,
   ItemUnitOption,
   MeResponse,
   OfferDetail,
@@ -302,6 +303,21 @@ export function setLineApproval(
   return request<OfferDetail>(`/api/offers/${offerId}/lines/approval`, {
     method: 'POST',
     body: { itemIds, approved },
+    actor,
+  })
+}
+
+/**
+ * สร้างใบขอซื้อใน HOSxP จากใบเสนอซื้อที่อนุมัติแล้ว (โมดูล 4)
+ * ย้อนกลับจากระบบนี้ไม่ได้ — ผู้เรียกต้องให้ผู้ใช้ยืนยันก่อน
+ */
+export function createPurchaseRequests(
+  offerId: number,
+  actor: ActorIdentity,
+): Promise<CreatePrResult> {
+  return request<CreatePrResult>(`/api/offers/${offerId}/purchase-requests`, {
+    method: 'POST',
+    body: {},
     actor,
   })
 }

@@ -12,7 +12,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Ban, Check, Plus, Printer, Save, Send, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Ban,
+  Check,
+  FileOutput,
+  Plus,
+  Printer,
+  Save,
+  Send,
+  Trash2,
+} from 'lucide-react'
 
 import { ErrorNotice } from '@/components/common/ErrorNotice'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -44,6 +54,7 @@ import {
   approveOffer,
   cancelOffer,
   createOffer,
+  createPurchaseRequests,
   getBudgets,
   getDepartments,
   getOffer,
@@ -59,6 +70,7 @@ import {
 } from '@/services/purchaseOfferApi'
 import { calcOffer } from '@server/services/offerCalc'
 import type {
+  CreatedRequest,
   OfferDetail,
   OfferInput,
   OfferItem,
@@ -279,6 +291,8 @@ export default function OfferEditor() {
   const [supplierPickerFor, setSupplierPickerFor] = useState<string | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
+  const [prOpen, setPrOpen] = useState(false)
+  const [prCreated, setPrCreated] = useState<CreatedRequest[]>([])
 
   const status = saved?.header.status ?? 'draft'
   const isEditable = (status === 'draft' || status === 'pending') && canRecord
@@ -553,6 +567,11 @@ export default function OfferEditor() {
                 <Check aria-hidden /> อนุมัติทั้งใบ
               </Button>
             )}
+            {saved !== null && (status === 'approved' || status === 'pr_partial') && canApprove && (
+              <Button variant="secondary" disabled={isBusy} onClick={() => setPrOpen(true)}>
+                <FileOutput aria-hidden /> สร้างใบขอซื้อใน HOSxP
+              </Button>
+            )}
             {saved !== null && !prStarted && status !== 'cancelled' && canApprove && (
               <Button variant="destructive" disabled={isBusy} onClick={() => setCancelOpen(true)}>
                 <Ban aria-hidden /> ยกเลิกใบ
@@ -580,6 +599,19 @@ export default function OfferEditor() {
       {notice !== null && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
           {notice}
+        </div>
+      )}
+      {prCreated.length > 0 && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+          <p className="font-medium">ใบขอซื้อที่สร้างใน HOSxP</p>
+          <ul className="mt-1 space-y-0.5">
+            {prCreated.map((request) => (
+              <li key={request.requestId}>
+                เลขที่ {request.requestNo} · {request.vendorName ?? 'ไม่ระบุผู้ขาย'} ·{' '}
+                {request.itemCount} รายการ · {toMoney(request.totalPrice)} บาท
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {error !== null && (
@@ -1137,6 +1169,69 @@ export default function OfferEditor() {
           />
         </>
       )}
+
+      {/* ---- สร้างใบขอซื้อเข้า HOSxP ---- */}
+      <Dialog open={prOpen} onOpenChange={setPrOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>สร้างใบขอซื้อใน HOSxP</DialogTitle>
+            <DialogDescription>
+              ระบบจะสร้างใบขอซื้อ “แยกตามผู้ขาย” จากรายการที่ติ๊กอนุมัติและยังไม่เคยสร้าง
+              ใบที่สร้างจะเข้าไปในสถานะยังไม่อนุมัติ ให้เจ้าหน้าที่พัสดุตรวจและอนุมัติใน HOSxP
+              ต่อ — เมื่อสร้างแล้วจะลบหรือแก้จากระบบนี้ไม่ได้
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            รายการที่จะสร้าง:{' '}
+            {lines.filter((line) => line.approved && line.prRequestNo === null).length} รายการ ·
+            ผู้ขาย{' '}
+            {
+              new Set(
+                lines
+                  .filter((line) => line.approved && line.prRequestNo === null)
+                  .map((line) => line.stockVendorId),
+              ).size
+            }{' '}
+            ราย (จะได้ใบขอซื้อเท่าจำนวนผู้ขาย)
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrOpen(false)}>
+              ยังไม่สร้าง
+            </Button>
+            <Button
+              disabled={isBusy || saved === null}
+              onClick={() => {
+                if (saved === null || actor === null) return
+                setPrOpen(false)
+                void (async () => {
+                  setIsBusy(true)
+                  setError(null)
+                  setNotice(null)
+                  try {
+                    const result = await createPurchaseRequests(saved.header.po_offer_id, actor)
+                    setPrCreated(result.created)
+                    setSaved(result.offer)
+                    setHeader(headerFromSaved(result.offer))
+                    setLines(result.offer.items.map(lineFromSaved))
+                    setNotice(
+                      `สร้างใบขอซื้อแล้ว ${result.created.length} ใบ — ` +
+                        result.created
+                          .map((request) => `${request.requestNo} (${request.itemCount} รายการ)`)
+                          .join(', '),
+                    )
+                  } catch (caught) {
+                    setError(caught)
+                  } finally {
+                    setIsBusy(false)
+                  }
+                })()
+              }}
+            >
+              ยืนยันสร้างใบขอซื้อ
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ---- ยกเลิกใบ ---- */}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>

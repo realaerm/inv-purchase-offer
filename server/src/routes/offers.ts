@@ -15,6 +15,7 @@ import { getActor, requireActor, requireRole } from '@server/lib/auth'
 import { asyncRoute, badRequest } from '@server/lib/http'
 import { parseBody, parseQuery } from '@server/lib/validate'
 import * as offerService from '@server/services/offerService'
+import { createPurchaseRequests } from '@server/services/prService'
 
 /** วันที่ทุกช่องรับเป็น ค.ศ. 'YYYY-MM-DD' (ฝั่ง UI แปลง พ.ศ. ให้ผู้ใช้เอง) */
 const dateText = z
@@ -238,6 +239,19 @@ export function offersRouter(): Router {
     asyncRoute(async (req, res) => {
       const body = parseBody(approveSchema, req.body ?? {})
       res.json(await offerService.approveOffer(offerIdOf(req), body.itemIds, actorOf(req)))
+    }),
+  )
+
+  /**
+   * สร้างใบขอซื้อใน HOSxP (โมดูล 4) — เขียนจริงลง stock_request/stock_request_list
+   * จึงจำกัดไว้ที่ approver เท่านั้น และย้อนกลับจากระบบนี้ไม่ได้
+   */
+  router.post(
+    '/:id/purchase-requests',
+    requireRole('approver'),
+    asyncRoute(async (req, res) => {
+      const result = await createPurchaseRequests(offerIdOf(req), actorOf(req))
+      res.status(201).json(result)
     }),
   )
 

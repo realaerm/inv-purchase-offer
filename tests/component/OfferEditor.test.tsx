@@ -44,6 +44,7 @@ vi.mock('@/services/purchaseOfferApi', () => ({
   submitOffer: vi.fn(),
   approveOffer: vi.fn(),
   cancelOffer: vi.fn(),
+  createPurchaseRequests: vi.fn(),
   logPrint: vi.fn(),
   searchItems: vi.fn(),
   searchVendors: vi.fn(),
@@ -421,5 +422,68 @@ describe('ใบที่บันทึกไว้', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('แก้ไขไม่ได้')
     expect(screen.getByText('PARACETAMOL 500 mg')).toBeInTheDocument()
+  })
+})
+
+describe('สร้างใบขอซื้อเข้า HOSxP (โมดูล 4)', () => {
+  beforeEach(() => {
+    identity = { ...identity, role: 'approver', canApprove: true }
+    vi.mocked(api.getOffer).mockResolvedValue(savedOffer({ status: 'approved' }))
+  })
+
+  it('MUST offer the button only on an approved document, and only to an approver', async () => {
+    renderSaved()
+    expect(await screen.findByRole('button', { name: /สร้างใบขอซื้อใน HOSxP/ })).toBeInTheDocument()
+
+    identity = { ...identity, role: 'recorder', canApprove: false }
+    renderSaved()
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /สร้างใบขอซื้อใน HOSxP/ })).toHaveLength(1),
+    )
+  })
+
+  it('MUST warn that the action cannot be undone before writing to HOSxP', async () => {
+    renderSaved()
+    await userEvent.click(await screen.findByRole('button', { name: /สร้างใบขอซื้อใน HOSxP/ }))
+
+    expect(screen.getByText(/ลบหรือแก้จากระบบนี้ไม่ได้/)).toBeInTheDocument()
+    expect(api.createPurchaseRequests).not.toHaveBeenCalled()
+  })
+
+  it('MUST create the requisitions and show the numbers HOSxP gave back', async () => {
+    vi.mocked(api.createPurchaseRequests).mockResolvedValue({
+      created: [
+        {
+          requestId: 913,
+          requestNo: '6900004',
+          vendorId: 5,
+          vendorName: 'ซิลลิค ฟาร์มา จำกัด',
+          itemCount: 1,
+          totalPrice: 125,
+        },
+      ],
+      offer: savedOffer({ status: 'pr_created' }),
+    })
+    renderSaved()
+
+    await userEvent.click(await screen.findByRole('button', { name: /สร้างใบขอซื้อใน HOSxP/ }))
+    await userEvent.click(screen.getByRole('button', { name: /ยืนยันสร้างใบขอซื้อ/ }))
+
+    await waitFor(() => expect(api.createPurchaseRequests).toHaveBeenCalledWith(77, expect.anything()))
+    expect(await screen.findByText(/สร้างใบขอซื้อแล้ว 1 ใบ/)).toBeInTheDocument()
+    expect(screen.getByText(/เลขที่ 6900004 · ซิลลิค ฟาร์มา จำกัด · 1 รายการ · 125.00 บาท/))
+      .toBeInTheDocument()
+  })
+
+  it('MUST surface a refusal from the backend instead of pretending it worked', async () => {
+    vi.mocked(api.createPurchaseRequests).mockRejectedValue(
+      new Error('ไม่มีรายการที่พร้อมสร้างใบขอซื้อ'),
+    )
+    renderSaved()
+
+    await userEvent.click(await screen.findByRole('button', { name: /สร้างใบขอซื้อใน HOSxP/ }))
+    await userEvent.click(screen.getByRole('button', { name: /ยืนยันสร้างใบขอซื้อ/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('ไม่มีรายการที่พร้อมสร้างใบขอซื้อ')
   })
 })

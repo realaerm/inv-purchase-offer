@@ -263,6 +263,21 @@ export interface OfferPrintData {
   rateMonths: number
 }
 
+/** ใบขอซื้อที่สร้างเข้า HOSxP หนึ่งใบ (โมดูล 4) */
+export interface CreatedRequest {
+  requestId: number
+  requestNo: string
+  vendorId: number | null
+  vendorName: string | null
+  itemCount: number
+  totalPrice: number
+}
+
+export interface CreatePrResult {
+  created: CreatedRequest[]
+  offer: OfferDetail
+}
+
 export interface OfferListItem {
   po_offer_id: number
   offer_no: string
