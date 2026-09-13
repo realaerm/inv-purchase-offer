@@ -46,6 +46,8 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/components/ui/**',
         'server/src/index.ts',
+        // ไฟล์ที่มีแต่ประกาศชนิดข้อมูล — คอมไพล์แล้วไม่เหลือโค้ดให้ทดสอบ
+        'src/types/**',
       ],
       thresholds: {
         statements: 80,

@@ -238,3 +238,105 @@ describe('เมื่อ API ล้ม', () => {
     expect(within(alert).getByRole('button', { name: /ลองใหม่/ })).toBeInTheDocument()
   })
 })
+
+describe('ตัวกรองอื่น ๆ และการล้างค่า', () => {
+  async function setup() {
+    renderPage()
+    await screen.findByRole('option', { name: 'คลังยาใหญ่' })
+    await userEvent.selectOptions(warehouseSelect(), '5')
+  }
+
+  it('MUST send the ED filter the user chose', async () => {
+    await setup()
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /ประเภทยา/ }), 'ed')
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].edFilter).toBe('ed'),
+    )
+  })
+
+  it('MUST send the chosen stock class as a list, the shape the backend parses', async () => {
+    await setup()
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /กลุ่มพัสดุ/ }), '3')
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].stockClassIds).toEqual([3]),
+    )
+  })
+
+  it('MUST let the rate window be switched to 12 months', async () => {
+    await setup()
+
+    await userEvent.click(screen.getByRole('button', { name: '12 เดือน' }))
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].rateMonths).toBe(12),
+    )
+  })
+
+  it('MUST let the PO-wait rule be turned off', async () => {
+    await setup()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /รวมจำนวนรอส่งจาก PO/ }))
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].includePoWait).toBe(false),
+    )
+  })
+
+  it('MUST search from the text box on Enter', async () => {
+    await setup()
+
+    await userEvent.type(screen.getByPlaceholderText(/para/), 'para{Enter}')
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].search).toBe('para'),
+    )
+  })
+
+  it('MUST clear the filters, the results and the ticks', async () => {
+    await setup()
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+    await screen.findByText('PARACETAMOL 500 mg')
+    await userEvent.click(screen.getByRole('checkbox', { name: /เลือก PARACETAMOL/ }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'ล้างเงื่อนไข' }))
+
+    expect(screen.getByText(/กด “ดึงรายการ”/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /สร้างใบเสนอซื้อ \(0\)/ })).toBeDisabled()
+  })
+
+  it('MUST tick and untick every row on the page at once', async () => {
+    await setup()
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'เลือกทุกรายการในหน้านี้' }))
+    expect(screen.getByRole('button', { name: /สร้างใบเสนอซื้อ \(1\)/ })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'เลือกทุกรายการในหน้านี้' }))
+    expect(screen.getByRole('button', { name: /สร้างใบเสนอซื้อ \(0\)/ })).toBeDisabled()
+  })
+
+  it('MUST page forward and back through the results', async () => {
+    vi.mocked(api.getReorderItems).mockResolvedValue(response({ total: 250 }))
+    await setup()
+    await userEvent.click(screen.getByRole('button', { name: /ดึงรายการ/ }))
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    expect(screen.getByRole('button', { name: 'ก่อนหน้า' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'ถัดไป' }))
+
+    await waitFor(() =>
+      expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].offset).toBe(100),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'ก่อนหน้า' }))
+    await waitFor(() => expect(vi.mocked(api.getReorderItems).mock.calls.at(-1)?.[0].offset).toBe(0))
+  })
+})

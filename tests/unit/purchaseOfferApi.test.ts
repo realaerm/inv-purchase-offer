@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as api from '@/services/purchaseOfferApi'
 import {
   ApiError,
   approveOffer,
@@ -218,5 +219,92 @@ describe('การเรียกที่ต้องถูกต้องต�
     expect(JSON.parse(init.body as string)).toEqual({
       entries: [{ key: 'offer_no_prefix', value: 'PO' }],
     })
+  })
+})
+
+describe('endpoint ที่เหลือของโมดูล', () => {
+  /** ทุกตัวคือสัญญาระหว่างหน้าจอกับ backend — path หรือ method เพี้ยนคือหน้าจอพัง */
+  const cases: Array<{ name: string; run: () => Promise<unknown>; url: string; method?: string }> = [
+    { name: 'getDepartments', run: () => api.getDepartments(ACTOR), url: '/api/master/departments' },
+    { name: 'getBudgets', run: () => api.getBudgets(ACTOR), url: '/api/master/budgets' },
+    {
+      name: 'getPurchaseTypes',
+      run: () => api.getPurchaseTypes(ACTOR),
+      url: '/api/master/purchase-types',
+    },
+    {
+      name: 'getStockClasses',
+      run: () => api.getStockClasses(ACTOR),
+      url: '/api/master/stock-classes',
+    },
+    { name: 'getEdTypes', run: () => api.getEdTypes(ACTOR), url: '/api/master/ed-types' },
+    {
+      name: 'getItemUnits',
+      run: () => api.getItemUnits(42, ACTOR),
+      url: '/api/master/items/42/units',
+    },
+    {
+      name: 'searchSuppliers',
+      run: () => api.searchSuppliers('บริษัท', ACTOR),
+      url: `/api/master/suppliers?search=${encodeURIComponent('บริษัท')}`,
+    },
+    {
+      name: 'searchItems',
+      run: () => api.searchItems('para', ACTOR),
+      url: '/api/master/items?search=para',
+    },
+    { name: 'getOffer', run: () => api.getOffer(77, ACTOR), url: '/api/offers/77' },
+    {
+      name: 'updateOffer',
+      run: () =>
+        api.updateOffer(77, { header: { offerDate: '2026-09-13', warehouseId: 5 }, items: [] }, ACTOR),
+      url: '/api/offers/77',
+      method: 'PUT',
+    },
+    {
+      name: 'submitOffer',
+      run: () => api.submitOffer(77, ACTOR),
+      url: '/api/offers/77/submit',
+      method: 'POST',
+    },
+    {
+      name: 'setLineApproval',
+      run: () => api.setLineApproval(77, [1, 2], true, ACTOR),
+      url: '/api/offers/77/lines/approval',
+      method: 'POST',
+    },
+    {
+      name: 'logPrint',
+      run: () => api.logPrint(77, ACTOR),
+      url: '/api/offers/77/print',
+      method: 'POST',
+    },
+    { name: 'getOfferAudit', run: () => api.getOfferAudit(77, ACTOR), url: '/api/offers/77/audit' },
+    { name: 'getPrintData', run: () => api.getPrintData(77, ACTOR), url: '/api/offers/77/print' },
+    {
+      name: 'createPurchaseRequests',
+      run: () => api.createPurchaseRequests(77, ACTOR),
+      url: '/api/offers/77/purchase-requests',
+      method: 'POST',
+    },
+    { name: 'getSettings', run: () => api.getSettings(ACTOR), url: '/api/settings' },
+  ]
+
+  it.each(cases)('MUST call the right endpoint for $name', async ({ run, url, method }) => {
+    fetchMock.mockResolvedValue(jsonResponse({ rows: [], created: [], items: [], header: {} }))
+
+    await run()
+
+    expect(lastCall().url).toBe(url)
+    expect(lastCall().init.method ?? 'GET').toBe(method ?? 'GET')
+  })
+
+  it('MUST attach the actor identity to every one of them', async () => {
+    for (const testCase of cases) {
+      fetchMock.mockResolvedValue(jsonResponse({ rows: [], created: [], items: [], header: {} }))
+      await testCase.run()
+      const headers = lastCall().init.headers as Record<string, string>
+      expect(headers['x-bms-actor'], testCase.name).toBe(encodeURIComponent(ACTOR.id))
+    }
   })
 })

@@ -294,3 +294,66 @@ describe('เมื่อโหลดข้อมูลไม่ได้', () =
     expect(screen.getByRole('link', { name: /กลับไปที่ใบเสนอซื้อ/ })).toBeInTheDocument()
   })
 })
+
+describe('รูปแบบอื่นของเอกสาร', () => {
+  it('MUST leave the VAT note off a document with no VAT', async () => {
+    vi.mocked(api.getPrintData).mockResolvedValue(
+      printData({
+        header: { ...printData().header, vat_mode: 'none', vat_amount: 0, net_amount: 304631.87 },
+      }),
+    )
+    renderPrint()
+
+    expect(await screen.findByText('เป็นเงิน 304,631.87 บาท')).toBeInTheDocument()
+    // ระวังคำว่า TRAVATAN ที่มี "VAT" อยู่ข้างใน — ต้องเจาะจงข้อความสรุปภาษี
+    expect(screen.queryByText(/แยก VAT|ราคารวม VAT/)).not.toBeInTheDocument()
+  })
+
+  it('MUST print nothing under a signature block set to “no date”', async () => {
+    vi.mocked(api.getPrintData).mockResolvedValue(
+      printData({
+        signatures: [
+          { caption: 'ลงชื่อ', prefix: '', role: 'เจ้าหน้าที่คลัง', dateMode: 'none' },
+        ],
+      }),
+    )
+    renderPrint()
+
+    expect(await screen.findByText('เจ้าหน้าที่คลัง')).toBeInTheDocument()
+    expect(screen.queryByText('......../......../........')).not.toBeInTheDocument()
+    expect(screen.queryByText('13 ส.ค. 69')).not.toBeInTheDocument()
+  })
+
+  it('MUST cope with a line that has no vendor, unit or approval year', async () => {
+    vi.mocked(api.getPrintData).mockResolvedValue(
+      printData({
+        items: [
+          printItem({
+            vendor_name: null,
+            unit_name: null,
+            item_unit: null,
+            sell_allow_year: null,
+            package_qty: null,
+            last_deliver_date: null,
+          }),
+        ],
+      }),
+    )
+    renderPrint()
+
+    const row = (await screen.findByText('* SEMAGLUTIDE 7 MG')).closest('tr')
+    expect(row).not.toBeNull()
+    // ช่องที่ไม่มีข้อมูลต้องว่างหรือขีด ไม่ใช่ "null" หรือ "undefined"
+    expect(row?.textContent).not.toContain('null')
+    expect(row?.textContent).not.toContain('undefined')
+  })
+
+  it('MUST show a dash when the document has no type name', async () => {
+    vi.mocked(api.getPrintData).mockResolvedValue(
+      printData({ header: { ...printData().header, offer_type_name: null } }),
+    )
+    renderPrint()
+
+    expect(await screen.findByRole('heading', { name: '-' })).toBeInTheDocument()
+  })
+})

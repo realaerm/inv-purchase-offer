@@ -856,6 +856,7 @@ export default function OfferEditor() {
                       <Input
                         type="number"
                         min={1}
+                        aria-label={`ขนาดบรรจุ ${line.itemName ?? line.itemId}`}
                         className="h-8 text-right"
                         value={line.packageQty ?? ''}
                         disabled={!isEditable}
@@ -868,6 +869,7 @@ export default function OfferEditor() {
                       <Input
                         type="number"
                         min={0}
+                        aria-label={`จำนวนซื้อ ${line.itemName ?? line.itemId}`}
                         className="h-8 text-right"
                         value={line.purchaseQty}
                         disabled={!isEditable || line.prRequestNo !== null}
@@ -881,6 +883,7 @@ export default function OfferEditor() {
                         type="number"
                         min={0}
                         step="0.001"
+                        aria-label={`ราคาต่อหน่วย ${line.itemName ?? line.itemId}`}
                         className="h-8 text-right"
                         value={line.unitPrice}
                         disabled={!isEditable || line.prRequestNo !== null}
@@ -917,6 +920,7 @@ export default function OfferEditor() {
                     <TableCell>
                       <Input
                         className="h-8"
+                        aria-label={`ชื่อการค้า ${line.itemName ?? line.itemId}`}
                         value={line.tradeName ?? ''}
                         disabled={!isEditable}
                         onChange={(event) =>

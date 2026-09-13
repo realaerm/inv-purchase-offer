@@ -274,7 +274,7 @@ describe('ใบใหม่จากรายการที่ติ๊กม�
     renderNew()
     await screen.findByText('PARACETAMOL 500 mg')
 
-    const qtyInput = screen.getAllByDisplayValue('10')[0]
+    const qtyInput = screen.getByRole('spinbutton', { name: 'จำนวนซื้อ PARACETAMOL 500 mg' })
     await userEvent.clear(qtyInput)
     await userEvent.type(qtyInput, '20')
 
@@ -485,5 +485,130 @@ describe('สร้างใบขอซื้อเข้า HOSxP (โมด�
     await userEvent.click(screen.getByRole('button', { name: /ยืนยันสร้างใบขอซื้อ/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('ไม่มีรายการที่พร้อมสร้างใบขอซื้อ')
+  })
+})
+
+describe('การแก้ไขรายละเอียดในตารางและส่วนหัว', () => {
+  it('MUST keep the header fields the user filled in when saving', async () => {
+    renderNew()
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    await userEvent.type(screen.getByRole('textbox', { name: /ประเภทเงิน/ }), 'เงินบำรุง')
+    await userEvent.type(screen.getByRole('textbox', { name: /ผู้ประสานงาน/ }), 'ภญ. สมหญิง')
+    await userEvent.type(screen.getByRole('textbox', { name: /หมายเหตุเอกสาร/ }), 'ด่วน')
+    await userEvent.click(screen.getByRole('button', { name: /^บันทึก/ }))
+
+    await waitFor(() => expect(api.createOffer).toHaveBeenCalled())
+    const [payload] = vi.mocked(api.createOffer).mock.calls[0]
+    expect(payload.header.moneyTypeName).toBe('เงินบำรุง')
+    expect(payload.header.coordinatorName).toBe('ภญ. สมหญิง')
+    expect(payload.header.documentNote).toBe('ด่วน')
+  })
+
+  it('MUST send the master ids chosen in the dropdowns', async () => {
+    renderNew()
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /แผนกที่เสนอซื้อ/ }), '12')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /งบประมาณ/ }), '9')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /วิธีจัดซื้อ/ }), '1')
+    await userEvent.click(screen.getByRole('button', { name: /^บันทึก/ }))
+
+    await waitFor(() => expect(api.createOffer).toHaveBeenCalled())
+    const [payload] = vi.mocked(api.createOffer).mock.calls[0]
+    expect(payload.header).toMatchObject({ departmentId: 12, budgetId: 9, purchaseType: 1 })
+  })
+
+  it('MUST carry the per-line details the user typed', async () => {
+    renderNew()
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    const packageInput = screen.getByRole('spinbutton', {
+      name: 'ขนาดบรรจุ PARACETAMOL 500 mg',
+    })
+    await userEvent.clear(packageInput)
+    await userEvent.type(packageInput, '50')
+    await userEvent.click(screen.getAllByRole('checkbox', { name: /อนุมัติรายการ/ })[0])
+    await userEvent.click(screen.getByRole('button', { name: /^บันทึก/ }))
+
+    await waitFor(() => expect(api.createOffer).toHaveBeenCalled())
+    const [payload] = vi.mocked(api.createOffer).mock.calls[0]
+    expect(payload.items[0].packageQty).toBe(50)
+    expect(payload.items[0].approved).toBe(true)
+  })
+
+  it('MUST add an item found through the search dialog', async () => {
+    vi.mocked(api.searchItems).mockResolvedValue([
+      {
+        item_id: 999,
+        item_code: 'B-999',
+        item_name: 'OMEPRAZOLE 20 mg',
+        item_unit: 'แคปซูล',
+        onhand_qty: 12,
+      },
+    ])
+    renderNew()
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    await userEvent.click(screen.getByRole('button', { name: /เพิ่มรายการเอง/ }))
+    await userEvent.type(screen.getByPlaceholderText(/paracetamol/), 'omep')
+    await userEvent.click(await screen.findByText('OMEPRAZOLE 20 mg'))
+    await userEvent.click(screen.getByRole('button', { name: /เพิ่ม 1 รายการ/ }))
+
+    expect(await screen.findByText('รายการพัสดุ (3)')).toBeInTheDocument()
+  })
+
+  it('MUST pick a vendor for a line through the search dialog', async () => {
+    vi.mocked(api.searchVendors).mockResolvedValue([{ id: 55, name: 'ซิลลิค ฟาร์มา จำกัด' }])
+    renderNew()
+    await screen.findByText('PARACETAMOL 500 mg')
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'เลือกผู้ขาย' })[0])
+    await userEvent.type(screen.getByPlaceholderText(/ชื่อผู้ขาย/), 'ซิลลิค')
+    await userEvent.click(await screen.findByText('ซิลลิค ฟาร์มา จำกัด'))
+
+    await userEvent.click(screen.getByRole('button', { name: /^บันทึก/ }))
+    await waitFor(() => expect(api.createOffer).toHaveBeenCalled())
+    expect(vi.mocked(api.createOffer).mock.calls[0][0].items[0].stockVendorId).toBe(55)
+  })
+
+  it('MUST log the print and open the print page', async () => {
+    renderSaved()
+    await screen.findByText(/PO-69-00007/)
+
+    await userEvent.click(screen.getByRole('button', { name: /พิมพ์/ }))
+
+    expect(api.logPrint).toHaveBeenCalledWith(77, expect.anything())
+    expect(navigate).toHaveBeenCalledWith('/offers/77/print')
+  })
+
+  it('MUST submit a draft for approval', async () => {
+    renderSaved()
+    await screen.findByText(/PO-69-00007/)
+
+    await userEvent.click(screen.getByRole('button', { name: /ส่งอนุมัติ/ }))
+
+    await waitFor(() => expect(api.submitOffer).toHaveBeenCalledWith(77, expect.anything()))
+    expect(await screen.findByText(/ส่งอนุมัติแล้ว/)).toBeInTheDocument()
+  })
+
+  it('MUST approve the whole document when an approver asks', async () => {
+    identity = { ...identity, role: 'approver', canApprove: true }
+    renderSaved()
+    await screen.findByText(/PO-69-00007/)
+
+    await userEvent.click(screen.getByRole('button', { name: /อนุมัติทั้งใบ/ }))
+
+    await waitFor(() => expect(api.approveOffer).toHaveBeenCalledWith(77, null, expect.anything()))
+    expect(await screen.findByText(/อนุมัติใบเสนอซื้อแล้ว/)).toBeInTheDocument()
+  })
+
+  it('MUST go back to the list', async () => {
+    renderSaved()
+    await screen.findByText(/PO-69-00007/)
+
+    await userEvent.click(screen.getByRole('button', { name: /รายการใบเสนอซื้อ/ }))
+
+    expect(navigate).toHaveBeenCalledWith('/offers')
   })
 })

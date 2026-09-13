@@ -198,3 +198,96 @@ describe('สิทธิ์', () => {
     expect(screen.queryByRole('button', { name: /บันทึก/ })).not.toBeInTheDocument()
   })
 })
+
+describe('ช่องเซ็นบนหน้าพิมพ์', () => {
+  function withSignature(): SettingsResponse {
+    const base = settings()
+    return {
+      ...base,
+      rows: [
+        ...base.rows,
+        {
+          setting_key: 'print_sign1',
+          setting_value: 'อนุมัติ||หัวหน้าเจ้าหน้าที่พัสดุ|blank',
+          description: null,
+          updated_by: null,
+          updated_at: '2026-09-01T03:00:00',
+        },
+      ],
+      definitions: [
+        ...(base.definitions ?? []),
+        { key: 'print_sign1', kind: 'signature', label: 'ช่องเซ็นที่ 1 (ซ้ายสุด)' },
+      ],
+    }
+  }
+
+  it('MUST split the stored value into fields instead of making the user type pipes', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(withSignature())
+    renderPage()
+
+    expect(
+      await screen.findByRole('textbox', { name: 'ช่องเซ็นที่ 1 (ซ้ายสุด): คำนำหน้าบรรทัด' }),
+    ).toHaveValue('อนุมัติ')
+    expect(
+      screen.getByRole('textbox', { name: 'ช่องเซ็นที่ 1 (ซ้ายสุด): ตำแหน่งใต้เส้น' }),
+    ).toHaveValue('หัวหน้าเจ้าหน้าที่พัสดุ')
+    expect(
+      screen.getByRole('combobox', { name: 'ช่องเซ็นที่ 1 (ซ้ายสุด): รูปแบบวันที่' }),
+    ).toHaveValue('blank')
+  })
+
+  it('MUST reassemble the four parts when a field changes', async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(withSignature())
+    renderPage()
+    await screen.findByRole('textbox', { name: 'ช่องเซ็นที่ 1 (ซ้ายสุด): คำนำหน้าบรรทัด' })
+
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'ช่องเซ็นที่ 1 (ซ้ายสุด): ยศ/คำนำหน้าชื่อ' }),
+      'น.อ.หญิง',
+    )
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'ช่องเซ็นที่ 1 (ซ้ายสุด): รูปแบบวันที่' }),
+      'document',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /บันทึก \(1\)/ }))
+
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalled())
+    expect(vi.mocked(api.saveSettings).mock.calls[0][0]).toEqual([
+      { key: 'print_sign1', value: 'อนุมัติ|น.อ.หญิง|หัวหน้าเจ้าหน้าที่พัสดุ|document' },
+    ])
+  })
+})
+
+describe('ค่าชนิดตัวเลือกและการโหลดใหม่', () => {
+  it('MUST send the chosen rate source', async () => {
+    renderPage()
+    await screen.findByText('prefix ของเลขที่ใบเสนอซื้อ')
+
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'แหล่งคำนวณ Rate ห้องยา' }),
+      'dep_stockcard',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /บันทึก \(1\)/ }))
+
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalled())
+    expect(vi.mocked(api.saveSettings).mock.calls[0][0]).toEqual([
+      { key: 'rate_pharmacy_source', value: 'dep_stockcard' },
+    ])
+  })
+
+  it('MUST fetch the settings again when asked to reload', async () => {
+    renderPage()
+    await screen.findByText('prefix ของเลขที่ใบเสนอซื้อ')
+
+    await userEvent.click(screen.getByRole('button', { name: /โหลดใหม่/ }))
+
+    await waitFor(() => expect(vi.mocked(api.getSettings).mock.calls.length).toBeGreaterThan(1))
+  })
+
+  it('MUST show the failure when the settings cannot be read at all', async () => {
+    vi.mocked(api.getSettings).mockRejectedValue(new Error('ยังไม่ได้ตั้งค่าฐานข้อมูลคลัง'))
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('ยังไม่ได้ตั้งค่าฐานข้อมูลคลัง')
+  })
+})
