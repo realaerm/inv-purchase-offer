@@ -62,7 +62,9 @@ describe('getSetupStatus', () => {
 
     expect(lastCall().url).toBe('/api/setup/status')
     expect(lastCall().init.method).toBe('GET')
-    expect(lastCall().init.headers).toBeUndefined()
+    // ไม่มีตัวตนของ BMS ติดไป (หน้านี้ใช้ได้ก่อนมี session) — มีแต่โทเคนผู้ดูแลถ้าเคยล็อกอิน
+    const headers = (lastCall().init.headers ?? {}) as Record<string, string>
+    expect(headers['x-bms-actor']).toBeUndefined()
     expect(status.isConfigured).toBe(true)
     expect(status.source).toBe('env')
   })

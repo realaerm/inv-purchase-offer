@@ -5,6 +5,7 @@ import { OfferIdentityProvider } from '@/contexts/OfferIdentityContext'
 import { SessionValidator } from '@/components/session/SessionValidator'
 import { LoadingSpinner } from '@/components/layout/LoadingSpinner'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { AdminGate } from '@/components/admin/AdminGate'
 
 // แต่ละหน้าโหลดแยก bundle — หน้าจัดทำใบเสนอซื้อใหญ่กว่าหน้าอื่นมาก
 const ReorderPull = lazy(() => import('@/pages/ReorderPull'))
@@ -23,8 +24,24 @@ function AppRoutes() {
         <Route path="/offers/new" element={<OfferEditor />} />
         <Route path="/offers/:id" element={<OfferEditor />} />
         <Route path="/offers/:id/print" element={<OfferPrint />} />
-        <Route path="/settings" element={<ModuleSettings />} />
-        <Route path="/setup" element={<ConnectionSetup />} />
+        {/* สองหน้านี้เปลี่ยนค่าที่กระทบทั้งโรงพยาบาล จึงอยู่หลังด่านผู้ดูแล
+            (ฝั่ง server กันไว้อีกชั้นด้วย requireAdmin) */}
+        <Route
+          path="/settings"
+          element={
+            <AdminGate title="ตั้งค่าโมดูล">
+              <ModuleSettings />
+            </AdminGate>
+          }
+        />
+        <Route
+          path="/setup"
+          element={
+            <AdminGate title="การเชื่อมต่อ">
+              <ConnectionSetup />
+            </AdminGate>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

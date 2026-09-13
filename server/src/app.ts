@@ -9,11 +9,13 @@ import express, { type Express } from 'express'
 
 import { isConnected } from '@server/db/inventoryDb'
 import { errorHandler } from '@server/lib/http'
+import { adminRouter } from '@server/routes/admin'
 import { masterRouter } from '@server/routes/master'
 import { offersRouter } from '@server/routes/offers'
 import { reorderRouter } from '@server/routes/reorder'
 import { meRouter, settingsRouter } from '@server/routes/settings'
 import { setupRouter } from '@server/routes/setup'
+import { requireAdmin } from '@server/services/adminAuth'
 
 /** Reject oversized bodies outright; nothing here needs a large payload. */
 const JSON_BODY_LIMIT = '1mb'
@@ -30,12 +32,17 @@ export function createApp(): Express {
     res.json({ ok: true, inventoryPool: isConnected() ? 'active' : 'not-configured' })
   })
 
-  app.use('/api/setup', setupRouter())
+  // เข้า/ออกโหมดผู้ดูแล — ต้องเรียกได้ก่อนผ่านด่านอื่นทั้งหมด
+  app.use('/api/admin', adminRouter())
+
+  // หน้าการเชื่อมต่อและหน้าตั้งค่าโมดูลเปลี่ยนพฤติกรรมของทั้งโรงพยาบาล
+  // จึงอยู่หลังด่านผู้ดูแล (บังคับที่ server ไม่ใช่แค่ซ่อนเมนูบนหน้าจอ)
+  app.use('/api/setup', requireAdmin, setupRouter())
 
   // งานของโมดูล — ทุก router ต้องมีตัวตนผู้ใช้จาก BMS session (ดู lib/auth.ts)
   // /api/setup อยู่นอกกลุ่มนี้โดยเจตนา: ตอนตั้งค่าครั้งแรกยังไม่มีฐานข้อมูลให้อ่านสิทธิ์
   app.use('/api/me', meRouter())
-  app.use('/api/settings', settingsRouter())
+  app.use('/api/settings', requireAdmin, settingsRouter())
   app.use('/api/master', masterRouter())
   app.use('/api/reorder', reorderRouter())
   app.use('/api/offers', offersRouter())

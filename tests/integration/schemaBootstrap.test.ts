@@ -59,7 +59,13 @@ function runnerFor(pool: Pool): SchemaRunner {
   }
 }
 
-describe.skipIf(!reachable)('ติดตั้งตารางของโมดูลบนฐานที่ยังว่าง', () => {
+/**
+ * ยืดเวลาให้เทสต์ที่แตะฐานข้อมูลจริง — คิว query ของโรงพยาบาลใช้เวลาได้หลายวินาที
+ * โดยเฉพาะตอนรันทั้งชุดพร้อมกัน (ค่าเริ่มต้น 5 วินาทีสั้นเกินไปและทำให้ล้มแบบสุ่ม)
+ */
+const DB_TEST_TIMEOUT_MS = 60_000
+
+describe.skipIf(!reachable)('ติดตั้งตารางของโมดูลบนฐานที่ยังว่าง', { timeout: DB_TEST_TIMEOUT_MS }, () => {
   let runner: SchemaRunner
 
   beforeAll(async () => {

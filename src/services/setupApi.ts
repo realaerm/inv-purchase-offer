@@ -6,7 +6,8 @@
 // เพื่ออ่าน sys_var จาก HOSxP
 // =============================================================================
 
-import { ApiError, type ApiFieldError } from '@/services/purchaseOfferApi'
+import { adminHeaders } from '@/services/adminApi'
+import { ApiError, type ApiFieldError } from '@/services/apiError'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
 
@@ -86,7 +87,11 @@ async function call<T>(path: string, body?: unknown, signal?: AbortSignal): Prom
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      // ทุก endpoint ของ /api/setup อยู่หลังด่านผู้ดูแล
+      headers:
+        body === undefined
+          ? adminHeaders()
+          : { 'Content-Type': 'application/json', ...adminHeaders() },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     })

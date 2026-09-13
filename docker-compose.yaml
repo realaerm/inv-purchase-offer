@@ -32,6 +32,9 @@ services:
       INV_CONFIG_KEY: ${INV_CONFIG_KEY:-}
       # สร้างตาราง po_offer_* ให้เองเมื่อต่อฐานคลังได้ (ตั้ง false ถ้าให้ DBA รัน DDL เอง)
       INV_AUTO_MIGRATE: ${INV_AUTO_MIGRATE:-true}
+      # บัญชีผู้ดูแลของหน้าตั้งค่า/หน้าการเชื่อมต่อ (ไม่ตั้ง = admin / Bmshosxp@!)
+      INV_ADMIN_USER: ${INV_ADMIN_USER:-}
+      INV_ADMIN_PASSWORD: ${INV_ADMIN_PASSWORD:-}
     volumes:
       - api-config:/app/server/.config
     healthcheck:

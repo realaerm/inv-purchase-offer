@@ -32,6 +32,9 @@ vi.mock('@server/services/settingsService', async (importOriginal) => {
 
 const { createApp } = await import('@server/app')
 const { closeInventoryPool } = await import('@server/db/inventoryDb')
+const { ADMIN_TOKEN_HEADER, clearAdminSessions, login } = await import(
+  '@server/services/adminAuth'
+)
 
 let server: Server
 let baseUrl: string
@@ -53,6 +56,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  clearAdminSessions()
   await closeInventoryPool()
   await new Promise<void>((resolve) => server.close(() => resolve()))
 })
@@ -82,9 +86,9 @@ const validOffer = {
 
 describe('การยืนยันตัวตน', () => {
   it('MUST reject every module endpoint without a BMS actor header', async () => {
+    // /api/settings ไม่อยู่ในลิสต์นี้แล้ว — ย้ายไปหลังด่านผู้ดูแล (ดู adminRoutes.test.ts)
     const paths = [
       '/api/me',
-      '/api/settings',
       '/api/master/warehouses',
       '/api/reorder?warehouseId=5',
       '/api/offers',
@@ -136,15 +140,18 @@ describe('สิทธิ์ 3 ระดับ', () => {
     expect(body.error).toContain('สิทธิ์ของคุณไม่เพียงพอ')
   })
 
-  it('MUST let a recorder not change module settings', async () => {
+  it('MUST refuse a settings change from anyone who is not signed in as an admin', async () => {
     const response = await send(
       'PUT',
       '/api/settings',
       { entries: [{ key: 'offer_no_prefix', value: 'PR' }] },
       RECORDER,
     )
+    const body = (await response.json()) as { code: string }
 
-    expect(response.status).toBe(403)
+    // หน้าตั้งค่าอยู่หลังด่านผู้ดูแล — สิทธิ์ approver ของ BMS อย่างเดียวไม่พอ
+    expect(response.status).toBe(401)
+    expect(body.code).toBe('ADMIN_REQUIRED')
   })
 })
 
@@ -222,11 +229,12 @@ describe('การตรวจ input ก่อนถึงฐานข้อม
   })
 
   it('MUST reject an unknown settings key with 400, not save it', async () => {
+    const token = login('admin', 'Bmshosxp@!', {})?.token ?? ''
     const response = await send(
       'PUT',
       '/api/settings',
       { entries: [{ key: 'not_a_real_key', value: '1' }] },
-      APPROVER,
+      { ...APPROVER, [ADMIN_TOKEN_HEADER]: token },
     )
 
     expect(response.status).toBe(400)

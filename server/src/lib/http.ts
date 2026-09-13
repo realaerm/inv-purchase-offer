@@ -21,12 +21,18 @@ export function log(level: Level, message: string, context: Record<string, unkno
 export class HttpError extends Error {
   readonly status: number
   readonly details?: unknown
+  /**
+   * รหัสให้ฝั่งเว็บแยกกรณีได้โดยไม่ต้องอ่านข้อความ
+   * เช่น ADMIN_REQUIRED = ต้องขึ้นฟอร์มผู้ดูแล ไม่ใช่ฟอร์ม BMS session
+   */
+  readonly code?: string
 
-  constructor(status: number, message: string, details?: unknown) {
+  constructor(status: number, message: string, details?: unknown, code?: string) {
     super(message)
     this.name = 'HttpError'
     this.status = status
     this.details = details
+    this.code = code
   }
 }
 
@@ -76,7 +82,11 @@ export function errorHandler(
       status: error.status,
       error: error.message,
     })
-    res.status(error.status).json({ error: error.message, details: error.details })
+    res.status(error.status).json({
+      error: error.message,
+      details: error.details,
+      code: error.code,
+    })
     return
   }
 

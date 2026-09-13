@@ -42,7 +42,13 @@ const ACTOR = { id: 'vitest-pr', name: 'ทดสอบสร้างใบข�
 const createdOfferIds: number[] = []
 const createdRequestIds: number[] = []
 
-describe.skipIf(!reachable)('สร้างใบขอซื้อเข้า HOSxP', () => {
+/**
+ * ยืดเวลาให้เทสต์ที่แตะฐานข้อมูลจริง — คิว query ของโรงพยาบาลใช้เวลาได้หลายวินาที
+ * โดยเฉพาะตอนรันทั้งชุดพร้อมกัน (ค่าเริ่มต้น 5 วินาทีสั้นเกินไปและทำให้ล้มแบบสุ่ม)
+ */
+const DB_TEST_TIMEOUT_MS = 60_000
+
+describe.skipIf(!reachable)('สร้างใบขอซื้อเข้า HOSxP', { timeout: DB_TEST_TIMEOUT_MS }, () => {
   let warehouseId = 0
   let itemIds: number[] = []
   let vendorIds: number[] = []

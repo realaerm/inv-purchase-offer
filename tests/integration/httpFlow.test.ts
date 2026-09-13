@@ -22,6 +22,7 @@ import {
 } from '@server/db/inventoryDb'
 import { loadConnection } from '@server/services/configStore'
 import { resolveInventoryConfig } from '@server/services/inventoryConfig'
+import { ADMIN_TOKEN_HEADER, clearAdminSessions, login } from '@server/services/adminAuth'
 import { saveSettings } from '@server/services/settingsService'
 
 loadEnvFile()
@@ -39,6 +40,12 @@ if (resolved.connection !== null && reachable) {
 const HEADERS = {
   'x-bms-actor': 'vitest-http',
   'x-bms-actor-name': encodeURIComponent('ทดสอบผ่าน HTTP'),
+}
+
+/** หน้าตั้งค่าอยู่หลังด่านผู้ดูแล — เก็บโทเคนไว้ใช้เฉพาะคำขอนั้น */
+let adminToken = ''
+function adminHeaders(): Record<string, string> {
+  return { ...HEADERS, [ADMIN_TOKEN_HEADER]: adminToken }
 }
 
 let server: Server
@@ -67,7 +74,13 @@ async function put(path: string, body: unknown): Promise<Response> {
   })
 }
 
-describe.skipIf(!reachable)('เส้นทาง HTTP บนฐานข้อมูลจริง', () => {
+/**
+ * ยืดเวลาให้เทสต์ที่แตะฐานข้อมูลจริง — คิว query ของโรงพยาบาลใช้เวลาได้หลายวินาที
+ * โดยเฉพาะตอนรันทั้งชุดพร้อมกัน (ค่าเริ่มต้น 5 วินาทีสั้นเกินไปและทำให้ล้มแบบสุ่ม)
+ */
+const DB_TEST_TIMEOUT_MS = 60_000
+
+describe.skipIf(!reachable)('เส้นทาง HTTP บนฐานข้อมูลจริง', { timeout: DB_TEST_TIMEOUT_MS }, () => {
   let warehouseId = 0
   let itemId = 0
 
@@ -99,10 +112,13 @@ describe.skipIf(!reachable)('เส้นทาง HTTP บนฐานข้อ
       `SELECT setting_value FROM po_offer_setting WHERE setting_key = 'approver_logins'`,
     )
     originalApprovers = current[0]?.setting_value ?? null
+    clearAdminSessions()
+    adminToken = login('admin', 'Bmshosxp@!', {})?.token ?? ''
     await saveSettings([{ key: 'approver_logins', value: 'ผู้อนุมัติสมมติของเทสต์' }], 'vitest')
   })
 
   afterAll(async () => {
+    clearAdminSessions()
     // คืนค่า approver_logins ให้เหมือนก่อนรันเทสต์
     await saveSettings([{ key: 'approver_logins', value: originalApprovers ?? '' }], 'vitest')
 
@@ -138,7 +154,7 @@ describe.skipIf(!reachable)('เส้นทาง HTTP บนฐานข้อ
     })
 
     it('MUST return the settings with the definitions the settings screen renders from', async () => {
-      const response = await get('/api/settings')
+      const response = await fetch(`${baseUrl}/api/settings`, { headers: adminHeaders() })
       const body = (await response.json()) as {
         rows: { setting_key: string }[]
         config: { offerNoPrefix: string; signatures: unknown[] }

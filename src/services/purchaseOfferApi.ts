@@ -9,6 +9,8 @@
 // รายฟิลด์เมื่อ backend ตอบ 400 เพื่อให้ฟอร์มไฮไลต์ช่องที่ผิดได้
 // =============================================================================
 
+import { adminHeaders } from '@/services/adminApi'
+import { ApiError, type ApiFieldError } from '@/services/apiError'
 import type {
   AuditEntry,
   CreatePrResult,
@@ -26,36 +28,14 @@ import type {
   SettingsResponse,
 } from '@/types/purchaseOffer'
 
+// ApiError ย้ายไปไฟล์กลางแล้ว — re-export ไว้ให้ผู้เรียกเดิมไม่ต้องแก้ import
+export { ApiError }
+export type { ApiFieldError }
+
 /** ผู้ทำรายการ — มาจาก user_info.name ของ BMS session */
 export interface ActorIdentity {
   id: string
   name: string
-}
-
-export interface ApiFieldError {
-  field: string
-  message: string
-}
-
-/** error ที่หน้าจอนำไปแสดงได้ทันที (message เป็นภาษาไทยจาก backend) */
-export class ApiError extends Error {
-  readonly status: number
-  readonly details: ApiFieldError[]
-  /** 'NOT_CONFIGURED' = ยังไม่ได้ตั้งค่าเซิร์ฟเวอร์คลัง */
-  readonly code: string | null
-
-  constructor(status: number, message: string, details: ApiFieldError[] = [], code: string | null = null) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.details = details
-    this.code = code
-  }
-
-  /** ข้อความของฟิลด์หนึ่ง (ใช้กับฟอร์ม) */
-  fieldError(field: string): string | undefined {
-    return this.details.find((detail) => detail.field === field)?.message
-  }
 }
 
 /**
@@ -92,15 +72,21 @@ async function request<T>(
     body?: unknown
     actor: ActorIdentity
     signal?: AbortSignal
+    /** true = endpoint อยู่หลังด่านผู้ดูแล ต้องแนบโทเคนไปด้วย */
+    admin?: boolean
   },
 ): Promise<T> {
-  const { method = 'GET', body, actor, signal } = options
+  const { method = 'GET', body, actor, signal, admin = false } = options
 
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: body === undefined ? actorHeaders(actor) : { ...JSON_HEADERS, ...actorHeaders(actor) },
+      headers: {
+        ...(body === undefined ? {} : JSON_HEADERS),
+        ...actorHeaders(actor),
+        ...(admin ? adminHeaders() : {}),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     })
@@ -152,15 +138,21 @@ export function getMe(actor: ActorIdentity, signal?: AbortSignal): Promise<MeRes
   return request<MeResponse>('/api/me', { actor, signal })
 }
 
+/** หน้าตั้งค่าอยู่หลังด่านผู้ดูแล จึงต้องแนบโทเคนไปด้วย */
 export function getSettings(actor: ActorIdentity, signal?: AbortSignal): Promise<SettingsResponse> {
-  return request<SettingsResponse>('/api/settings', { actor, signal })
+  return request<SettingsResponse>('/api/settings', { actor, signal, admin: true })
 }
 
 export function saveSettings(
   entries: { key: string; value: string }[],
   actor: ActorIdentity,
 ): Promise<SettingsResponse> {
-  return request<SettingsResponse>('/api/settings', { method: 'PUT', body: { entries }, actor })
+  return request<SettingsResponse>('/api/settings', {
+    method: 'PUT',
+    body: { entries },
+    actor,
+    admin: true,
+  })
 }
 
 // -----------------------------------------------------------------------------
