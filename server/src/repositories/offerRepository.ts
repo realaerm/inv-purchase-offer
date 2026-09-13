@@ -193,13 +193,16 @@ export interface OfferItemRow {
  *
  * MAX(running)+1 แข่งกันได้ถ้าสองคนกดบันทึกพร้อมกัน — advisory lock ทำให้เข้าคิว
  * แทนที่จะชน UNIQUE แล้ว rollback ทั้งใบ (ล็อกปลดเองตอน COMMIT/ROLLBACK)
+ *
+ * แบบ 2 คีย์ของ PostgreSQL รับ int (int4) ไม่ใช่ bigint — ปี พ.ศ. และ warehouse_id
+ * อยู่ในช่วง int สบาย ๆ
  */
 export async function lockOfferSequence(
   client: PoolClient,
   beYear: number,
   warehouseId: number,
 ): Promise<void> {
-  await client.query('SELECT pg_advisory_xact_lock($1::bigint, $2::bigint)', [beYear, warehouseId])
+  await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [beYear, warehouseId])
 }
 
 /** เลขรันนิงสูงสุดที่ใช้อยู่ของปี พ.ศ. + คลังนั้น (null = ยังไม่มีเอกสาร) */
@@ -429,16 +432,18 @@ export async function setStatus(
 ): Promise<void> {
   await run(
     client,
+    // $2 ถูกใช้ทั้งเป็นค่าที่เขียนลงคอลัมน์และเป็นค่าที่เทียบใน CASE — ต้อง cast ให้ชัด
+    // ไม่งั้น PostgreSQL เดาชนิดไม่ตรงกันแล้วปฏิเสธ ("inconsistent types deduced")
     `UPDATE po_offer_document SET
-       status = $2,
+       status = $2::varchar,
        updated_by = $3,
        updated_at = now(),
-       approved_by      = CASE WHEN $2 = 'approved'  THEN $3 ELSE approved_by END,
-       approved_by_name = CASE WHEN $2 = 'approved'  THEN $4 ELSE approved_by_name END,
-       approved_at      = CASE WHEN $2 = 'approved'  THEN now() ELSE approved_at END,
-       cancelled_by     = CASE WHEN $2 = 'cancelled' THEN $3 ELSE cancelled_by END,
-       cancelled_at     = CASE WHEN $2 = 'cancelled' THEN now() ELSE cancelled_at END,
-       cancel_reason    = CASE WHEN $2 = 'cancelled' THEN $5 ELSE cancel_reason END
+       approved_by      = CASE WHEN $2::varchar = 'approved'  THEN $3 ELSE approved_by END,
+       approved_by_name = CASE WHEN $2::varchar = 'approved'  THEN $4 ELSE approved_by_name END,
+       approved_at      = CASE WHEN $2::varchar = 'approved'  THEN now() ELSE approved_at END,
+       cancelled_by     = CASE WHEN $2::varchar = 'cancelled' THEN $3 ELSE cancelled_by END,
+       cancelled_at     = CASE WHEN $2::varchar = 'cancelled' THEN now() ELSE cancelled_at END,
+       cancel_reason    = CASE WHEN $2::varchar = 'cancelled' THEN $5 ELSE cancel_reason END
      WHERE po_offer_id = $1`,
     [params.offerId, params.status, params.actorId, params.actorName, params.cancelReason ?? null],
   )
